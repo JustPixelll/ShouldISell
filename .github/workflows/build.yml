@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -52,3 +52,74 @@ jobs:
           path: ${{ steps.package.outputs.path }}
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish Should I v1.1.2 live
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, 'LIVE-PUBLISH-v1.1.2')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "v1.1.2"
+          $repo = $env:GITHUB_REPOSITORY
+          $package = "${{ steps.package.outputs.path }}"
+          $notesPath = "$env:RUNNER_TEMP\release-notes.md"
+
+          @"
+          # Should I? v1.1.2
+
+          Focused **Should I Buy?** world-safety and live-verification update based on live testing.
+
+          ## Current-world safety
+          - Normal Buy recommendations are scoped to the world you are physically on now.
+          - Cached recommendations from a different visited world are hidden rather than silently shown as local opportunities.
+          - Changing worlds during discovery or detailed Universalis analysis discards that run.
+          - The opportunity detail page shows the market world explicitly.
+          - Cross-world trading is intentionally left for a separate explicit opt-in mode.
+
+          ## Clear scan stages
+          - **Discover Good Buys (Universalis)** is the broad market-universe pass.
+          - **Detailed Universalis** fetches full listings and 90-day history only for the strongest candidate items.
+          - **LIVE VERIFY THIS ITEM ONLY** performs one native FFXIV ItemSearch request for the selected item and never starts the broad discovery pass.
+          - LIVE VERIFY warns when the Market Board/retainer market UI is not visible because the native ItemSearch proxy may not be ready.
+
+          ## Usability
+          - Right-click item names in the Buy results, budget basket, or detail page to copy the item name to the clipboard.
+
+          Recommendations remain read-only and Should I? never automatically purchases Market Board listings.
+          "@ | Set-Content $notesPath -Encoding UTF8
+
+          gh release view $tag --repo $repo *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag "$package#latest.zip" --repo $repo --clobber
+          } else {
+            gh release create $tag "$package#latest.zip" --repo $repo --target "$env:GITHUB_SHA" --title "Should I? v1.1.2" --notes-file $notesPath
+          }
+          if ($LASTEXITCODE -ne 0) { throw "GitHub release publication failed." }
+
+          [xml]$project = Get-Content ".\ShouldISell\ShouldISell.csproj"
+          $version = [string]$project.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($version)) { throw "Could not read project version." }
+
+          $download = "https://github.com/$repo/releases/download/$tag/latest.zip"
+          $manifest = @(Get-Content ".\pluginmaster.json" -Raw | ConvertFrom-Json)
+          if ($manifest.Count -ne 1) { throw "Expected exactly one plugin entry in pluginmaster.json." }
+
+          $manifest[0].Name = "Should I?"
+          $manifest[0].Punchline = "Sell smarter. Buy smarter. Learn your trading style."
+          $manifest[0].AssemblyVersion = $version
+          $manifest[0].DownloadLinkInstall = $download
+          $manifest[0].DownloadLinkUpdate = $download
+          $manifest[0].Changelog = (Get-Content $notesPath -Raw).Trim()
+          $manifest[0].LastUpdate = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()
+
+          ConvertTo-Json -InputObject $manifest -Depth 10 | Set-Content ".\pluginmaster.json" -Encoding UTF8
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pluginmaster.json
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "chore: publish Should I v1.1.2"
+            git push origin HEAD:main
+          }
