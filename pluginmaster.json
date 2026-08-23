@@ -4,9 +4,9 @@
     "Name": "Should I?",
     "Punchline": "Know what to sell, what to buy, and where your gil goes.",
     "Description": "FFXIV economy intelligence suite: sell optimization, executable buy discovery, native verification, gil cashflow tracking, FIFO trading P&L, and personal Market Board analytics.",
-    "Changelog": "v1.1.8 adds exact current-listing state age (price + quantity), expands Should I Tycoon? with an observed gil cashflow ledger and editable income/spend categories, and lets normal Market Board purchases be marked Personal so crafting/glamour buys remain in spending history without polluting FIFO trading positions or P&L.",
+    "Changelog": "# Should I? v2.0.0\r\n\r\nShould I? has grown from a selling helper into an FFXIV **economy intelligence suite**. v2 formalizes that identity and fixes an important Buy discovery regression.\r\n\r\n## Should I Buy? — scanner breadth restored\r\n\r\n- Fixes a v1.1.7 shortlist regression where discovery-only DC/region/listing signals could crowd strong Phoenix/current-world candidates out of the limited 90-day deep-analysis pool.\r\n- Current-world recent-sale candidates again form the primary deep-analysis pool.\r\n- Rare/high-ticket items still get a bounded rescue lane instead of disappearing when the local four-day aggregate is empty.\r\n- High-gil opportunities get a separate local, sale-backed discovery lane.\r\n- Discovery references are now hierarchical and conservative; an inflated remote/listing median can no longer override good local sale evidence simply because it is numerically higher.\r\n- Final recommendations are still based on detailed current-world listings + 90-day history and still obey budget, per-item exposure, minimum profit/ROI, holding-time and vendor-supply safeguards.\r\n- Scanner status now exposes broad-signal and local/rare deep-candidate counts so a suspiciously narrow result set is diagnosable.\r\n\r\n## Should I Sell? — sortable listing state age\r\n\r\n- The Current Listings **As-is** column is now sortable.\r\n- It continues to represent the age of the exact current price + quantity state, with hover detail for full observed lifetime, price age and quantity age.\r\n\r\n## Should I Tycoon? — v2 economy layer\r\n\r\n- Full observed player-wallet cashflow ledger.\r\n- Editable income/spend categories with explicit Unclassified handling when source identity cannot be proven.\r\n- Exact Market Board purchase attribution where wallet deltas match confirmed purchases.\r\n- Trade Positions separate from personal/crafting/glamour purchases.\r\n- FIFO cost basis, realized/unrealized P&L, strategy/item performance and model calibration.\r\n- Sales Insights and Listing Insights remain linked to Should I Sell?.\r\n\r\n## Project identity\r\n\r\n- Public-facing workflow/release terminology now consistently says **Should I?** rather than the old Sell-only name.\r\n- New suite icon and stronger public description.\r\n- `InternalName = ShouldISell` and the technical project/repository path are intentionally retained for upgrade compatibility.",
     "InternalName": "ShouldISell",
-    "AssemblyVersion": "1.1.8.0",
+    "AssemblyVersion": "2.0.0.0",
     "RepoUrl": "https://github.com/JustPixelll/ShouldISell",
     "ApplicableVersion": "any",
     "CategoryTags": [
@@ -18,10 +18,10 @@
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/overview.png",
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/details.png"
     ],
-    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v1.1.8/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v1.1.8/latest.zip",
+    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.0.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.0.0/latest.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "LastUpdate": "1787528126"
+    "LastUpdate": "1787529310"
   }
 ]
