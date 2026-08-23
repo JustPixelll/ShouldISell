@@ -1,0 +1,135 @@
+name: Temporary v1.1.8 branch patch runner
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - .github/v118-main-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v5
+        with:
+          ref: feature/v1.1.8-tycoon-cashflow-listing-age
+          fetch-depth: 0
+
+      - name: Apply v1.1.8 patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one match in {path}, found {count}: {old[:140]!r}")
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # TraderStore: persist wallet deltas and reversible purchase classification.
+          path = 'ShouldISell/Services/TraderStore.cs'
+          replace_once(path,
+          '''    public void Flush()\n    {''',
+          '''    public IReadOnlyList<GilFlowEntry> GetGilFlows(ulong characterContentId)\n    {\n        lock (gate)\n            return document.GilFlows\n                .Where(x => x.CharacterContentId == characterContentId)\n                .OrderByDescending(x => x.AtUtc)\n                .ToList();\n    }\n\n    public bool AddGilFlow(GilFlowEntry flow, bool flush = true)\n    {\n        if (string.IsNullOrWhiteSpace(flow.Id) || flow.CharacterContentId == 0 || flow.Amount == 0)\n            return false;\n\n        lock (gate)\n        {\n            if (document.GilFlows.Any(x => string.Equals(x.Id, flow.Id, StringComparison.Ordinal)))\n                return false;\n\n            document.GilFlows.Add(flow);\n            document.GilFlows = document.GilFlows\n                .OrderByDescending(x => x.AtUtc)\n                .Take(50_000)\n                .ToList();\n            document.Version = Math.Max(document.Version, 2);\n            dirty = true;\n        }\n\n        if (flush)\n            Flush();\n        return true;\n    }\n\n    public bool UpdateGilFlowClassification(\n        string id,\n        GilFlowCategory category,\n        string source,\n        bool autoClassified,\n        string note,\n        bool flush = true)\n    {\n        lock (gate)\n        {\n            var index = document.GilFlows.FindIndex(x => string.Equals(x.Id, id, StringComparison.Ordinal));\n            if (index < 0)\n                return false;\n\n            var current = document.GilFlows[index];\n            document.GilFlows[index] = current with\n            {\n                Category = category,\n                Source = string.IsNullOrWhiteSpace(source) ? current.Source : source,\n                AutoClassified = autoClassified,\n                Note = note,\n            };\n            dirty = true;\n        }\n\n        if (flush)\n            Flush();\n        return true;\n    }\n\n    public string GetPurchaseKey(PersonalPurchase purchase)\n        => $"{purchase.CharacterContentId}:{purchase.PurchasedAtUtc.ToUniversalTime().Ticks}:{purchase.ListingId}:{purchase.ItemId}:{(purchase.IsHq ? 1 : 0)}:{purchase.Quantity}:{purchase.TotalCost}";\n\n    public bool IsPurchaseExcluded(PersonalPurchase purchase)\n    {\n        var key = GetPurchaseKey(purchase);\n        lock (gate)\n            return document.ExcludedPurchaseKeys.Any(x => string.Equals(x, key, StringComparison.Ordinal));\n    }\n\n    public bool SetPurchaseExcluded(PersonalPurchase purchase, bool excluded, bool flush = true)\n    {\n        var key = GetPurchaseKey(purchase);\n        lock (gate)\n        {\n            var exists = document.ExcludedPurchaseKeys.Any(x => string.Equals(x, key, StringComparison.Ordinal));\n            if (excluded == exists)\n                return false;\n\n            if (excluded)\n                document.ExcludedPurchaseKeys.Add(key);\n            else\n                document.ExcludedPurchaseKeys.RemoveAll(x => string.Equals(x, key, StringComparison.Ordinal));\n\n            document.Version = Math.Max(document.Version, 2);\n            dirty = true;\n        }\n\n        if (flush)\n            Flush();\n        return true;\n    }\n\n    public void Flush()\n    {''')
+
+          replace_once(path,
+          '''    public sealed class TraderDocument\n    {\n        public int Version { get; set; } = 1;\n        public List<PersonalPurchase> Purchases { get; set; } = new();\n    }''',
+          '''    public sealed class TraderDocument\n    {\n        public int Version { get; set; } = 2;\n        public List<PersonalPurchase> Purchases { get; set; } = new();\n        public List<GilFlowEntry> GilFlows { get; set; } = new();\n        public List<string> ExcludedPurchaseKeys { get; set; } = new();\n    }''')
+
+          # TraderAnalyzer: only trade-eligible purchase lots participate in FIFO P&L/open positions.
+          path = 'ShouldISell/Services/TraderAnalyzer.cs'
+          replace_once(path,
+          '''        var purchases = traderStore.GetPurchases(contentId).OrderBy(x => x.PurchasedAtUtc).ToList();''',
+          '''        var purchases = traderStore.GetPurchases(contentId)\n            .Where(x => !traderStore.IsPurchaseExcluded(x))\n            .OrderBy(x => x.PurchasedAtUtc)\n            .ToList();''')
+
+          # ListingHistoryTracker: expose full lifetime, current price age, quantity age and exact-state age.
+          path = 'ShouldISell/Services/ListingHistoryTracker.cs'
+          replace_once(path,
+          '''public sealed record ListingTraceEvent(\n    ListingTraceEventKind Kind,\n    DateTimeOffset AtUtc,\n    uint UnitPrice,\n    int Quantity,\n    short MarketSlot,\n    uint? PreviousUnitPrice = null,\n    int? PreviousQuantity = null);''',
+          '''public sealed record ListingTraceEvent(\n    ListingTraceEventKind Kind,\n    DateTimeOffset AtUtc,\n    uint UnitPrice,\n    int Quantity,\n    short MarketSlot,\n    uint? PreviousUnitPrice = null,\n    int? PreviousQuantity = null);\n\npublic sealed record ListingTraceTiming(\n    DateTimeOffset FirstSeenUtc,\n    DateTimeOffset PriceSinceUtc,\n    DateTimeOffset QuantitySinceUtc,\n    DateTimeOffset StateSinceUtc);''')
+
+          replace_once(path,
+          '''    public void Flush()\n    {''',
+          '''    public ListingTraceTiming? GetTiming(ulong characterContentId, OwnMarketListing listing)\n    {\n        lock (gate)\n        {\n            var lifecycle = document.Lifecycles\n                .Where(x => x.CharacterContentId == characterContentId && x.IsActive)\n                .FirstOrDefault(x =>\n                    x.RetainerId == listing.RetainerId &&\n                    x.LastMarketSlot == listing.MarketSlot &&\n                    x.ItemId == listing.ItemId &&\n                    x.IsHq == listing.IsHq);\n            if (lifecycle is null)\n                return null;\n\n            var priceSince = lifecycle.Events\n                .Where(x => x.Kind == ListingTraceEventKind.Listed || x.Kind == ListingTraceEventKind.PriceChanged)\n                .Select(x => x.AtUtc)\n                .DefaultIfEmpty(lifecycle.FirstSeenUtc)\n                .Max();\n            var quantitySince = lifecycle.Events\n                .Where(x => x.Kind == ListingTraceEventKind.Listed || x.Kind == ListingTraceEventKind.QuantityChanged)\n                .Select(x => x.AtUtc)\n                .DefaultIfEmpty(lifecycle.FirstSeenUtc)\n                .Max();\n            var stateSince = priceSince > quantitySince ? priceSince : quantitySince;\n            return new ListingTraceTiming(lifecycle.FirstSeenUtc, priceSince, quantitySince, stateSince);\n        }\n    }\n\n    public void Flush()\n    {''')
+
+          # Plugin: wire safe Currency-inventory gil observation into the existing passive heartbeat.
+          path = 'ShouldISell/Plugin.cs'
+          replace_once(path,
+          '''    [PluginService] internal static IPlayerState PlayerState { get; private set; } = null!;\n    [PluginService] internal static IMarketBoard MarketBoard { get; private set; } = null!;''',
+          '''    [PluginService] internal static IPlayerState PlayerState { get; private set; } = null!;\n    [PluginService] internal static IGameInventory GameInventory { get; private set; } = null!;\n    [PluginService] internal static IMarketBoard MarketBoard { get; private set; } = null!;''')
+          replace_once(path,
+          '''    public TraderStore TraderStore { get; }\n    public GameItemCatalog Catalog { get; }''',
+          '''    public TraderStore TraderStore { get; }\n    public GilLedgerTracker GilLedger { get; }\n    public GameItemCatalog Catalog { get; }''')
+          replace_once(path,
+          '''        TraderStore = new TraderStore(PluginInterface, Log);\n        Catalog = new GameItemCatalog(DataManager);''',
+          '''        TraderStore = new TraderStore(PluginInterface, Log);\n        GilLedger = new GilLedgerTracker(GameInventory, PlayerState, TraderStore, Log);\n        Catalog = new GameItemCatalog(DataManager);''')
+          replace_once(path,
+          '''        nextPassiveScan = DateTimeOffset.UtcNow.AddSeconds(2);\n        Inventory.ScanLoadedContainers();\n        ListingHistory.Capture();''',
+          '''        nextPassiveScan = DateTimeOffset.UtcNow.AddSeconds(2);\n        GilLedger.Capture();\n        Inventory.ScanLoadedContainers();\n        ListingHistory.Capture();''')
+
+          # Current Listings UI: add explicit exact price+quantity state age without resetting full lifetime.
+          path = 'ShouldISell/Windows/MainWindow.cs'
+          replace_once(path,
+          '''        if (ImGui.BeginTable("current-listings-table", 13, flags, new Vector2(0, tableHeight)))''',
+          '''        if (ImGui.BeginTable("current-listings-table", 14, flags, new Vector2(0, tableHeight)))''')
+          replace_once(path,
+          '''            ImGui.TableSetupColumn("Last seen", ImGuiTableColumnFlags.WidthFixed, 78 * ImGuiHelpers.GlobalScale);\n            DrawHeaderRow(ListingHeaderHelp);''',
+          '''            ImGui.TableSetupColumn("Last seen", ImGuiTableColumnFlags.WidthFixed, 78 * ImGuiHelpers.GlobalScale);\n            ImGui.TableSetupColumn("As-is", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.NoSort, 78 * ImGuiHelpers.GlobalScale);\n            DrawHeaderRow(ListingHeaderHelp);''')
+          replace_once(path,
+          '''                ImGui.TableSetColumnIndex(12);\n                ImGui.TextUnformatted(Age(row.Listing.LastSeenUtc));''',
+          '''                ImGui.TableSetColumnIndex(12);\n                ImGui.TextUnformatted(Age(row.Listing.LastSeenUtc));\n                ImGui.TableSetColumnIndex(13);\n                DrawListingStateAge(row.Listing);''')
+          replace_once(path,
+          '''        ("Last seen", "How recently the addon saw this listing in the loaded retainer-market container."),\n    };''',
+          '''        ("Last seen", "How recently the addon saw this listing in the loaded retainer-market container."),\n        ("As-is", "How long the exact currently observed price + quantity combination has remained unchanged. Hover for full observed listing lifetime, current-price age and current-quantity age. The full listing lifetime does not reset when quantity changes."),\n    };''')
+          replace_once(path,
+          '''                ImGui.TextDisabled($"Retainer: {listing.RetainerName} • known listed {Elapsed(listing.FirstSeenUtc)} • current price age {Elapsed(listing.PriceChangedUtc)}");''',
+          '''                ImGui.TextDisabled($"Retainer: {listing.RetainerName} • known listed {Elapsed(listing.FirstSeenUtc)} • current price age {Elapsed(listing.PriceChangedUtc)}");\n                var timing = plugin.ListingHistory.GetTiming(listing.CharacterContentId, listing);\n                if (timing is not null)\n                    ImGui.TextDisabled($"Exact price + quantity state: {Elapsed(timing.StateSinceUtc)} • current quantity age {Elapsed(timing.QuantitySinceUtc)} • full observed lifetime {Elapsed(timing.FirstSeenUtc)}");''')
+          replace_once(path,
+          '''    private void DrawListingFilters()\n    {''',
+          '''    private void DrawListingStateAge(OwnMarketListing listing)\n    {\n        var timing = plugin.ListingHistory.GetTiming(listing.CharacterContentId, listing);\n        if (timing is null)\n        {\n            ImGui.TextDisabled("—");\n            return;\n        }\n\n        ImGui.TextUnformatted(Elapsed(timing.StateSinceUtc));\n        if (!ImGui.IsItemHovered())\n            return;\n\n        ImGui.BeginTooltip();\n        ImGui.TextUnformatted($"Exact price + quantity unchanged: {Elapsed(timing.StateSinceUtc)}");\n        ImGui.TextUnformatted($"Observed listing lifetime: {Elapsed(timing.FirstSeenUtc)}");\n        ImGui.TextDisabled("Listing lifetime includes the time before observed quantity changes.");\n        ImGui.TextUnformatted($"Current price unchanged: {Elapsed(timing.PriceSinceUtc)}");\n        ImGui.TextUnformatted($"Current quantity unchanged: {Elapsed(timing.QuantitySinceUtc)}");\n        ImGui.Separator();\n        ImGui.TextWrapped("These are observation ages. FFXIV does not provide the original server-side listing timestamp, and a change made while Should I? cannot observe that retainer is timestamped when the listing is next seen.");\n        ImGui.EndTooltip();\n    }\n\n    private void DrawListingFilters()\n    {''')
+
+          # Tycoon shell: cashflow first, trade positions separately, and reversible purchase purpose.
+          path = 'ShouldISell/Windows/SuiteWindow.Tycoon.cs'
+          replace_once(path,
+          '''        ImGui.TextWrapped("Tycoon combines real Market Board purchases with every captured retainer sale. P&L remains FIFO and only uses known purchase cost basis, while Sales Insights also learns from gathered, crafted, dropped, gifted and pre-tracking stock. Listing Insights studies your own traceable listing lifecycle: repricing, stack-size changes, relists and time-to-sale.");\n        ImGui.Spacing();\n\n        DrawTraderProfile(snapshot);''',
+          '''        ImGui.TextWrapped("Tycoon is now both a gil/capital ledger and a trading laboratory. It records direct player-wallet changes while Should I? is running, keeps high-confidence Market Board purchase/sale economics separate, and still uses FIFO only for purchase lots you consider trading positions. Unknown wallet sources remain explicitly unclassified until you categorize them instead of Tycoon guessing.");\n        ImGui.Spacing();\n\n        DrawTycoonCashflowSummary(snapshot);\n        ImGui.Spacing();\n        DrawTraderProfile(snapshot);''')
+          replace_once(path,
+          '''        if (ImGui.BeginTabBar("##tycoon-tabs"))\n        {\n            if (ImGui.BeginTabItem("Open Positions"))''',
+          '''        if (ImGui.BeginTabBar("##tycoon-tabs"))\n        {\n            if (ImGui.BeginTabItem("Cashflow"))\n            {\n                DrawTycoonCashflow();\n                ImGui.EndTabItem();\n            }\n            if (ImGui.BeginTabItem("Trade Positions"))''')
+          replace_once(path,
+          '''            if (ImGui.BeginTabItem("Closed Trades"))\n            {\n                DrawClosedTrades(snapshot);\n                ImGui.EndTabItem();\n            }''',
+          '''            if (ImGui.BeginTabItem("Closed Trades"))\n            {\n                DrawClosedTrades(snapshot);\n                ImGui.EndTabItem();\n            }\n            if (ImGui.BeginTabItem("Purchases"))\n            {\n                DrawTycoonPurchases();\n                ImGui.EndTabItem();\n            }''')
+          replace_once(path,
+          '''        ImGui.TextDisabled("Open positions are remaining FIFO purchase lots. Suggested exit/value comes from the current Should I Sell? model when that item is present in your known inventory snapshots.");''',
+          '''        ImGui.TextDisabled("Trade positions are remaining FIFO purchase lots currently marked as Trade. Purchases marked Personal remain in your real spending/cashflow history but are excluded from trading P&L and open positions. Suggested exit/value comes from the current Should I Sell? model when the item is present in known inventory snapshots.");''')
+          replace_once(path,
+          '''            MetricCell(0, "Tracked purchases", snapshot.PurchaseCount.ToString("N0"));''',
+          '''            MetricCell(0, "Trade purchases", snapshot.PurchaseCount.ToString("N0"));''')
+
+          # Version hygiene.
+          path = 'ShouldISell/ShouldISell.csproj'
+          replace_once(path, '<Version>1.1.7.0</Version>', '<Version>1.1.8.0</Version>')
+          path = 'ShouldISell/Services/BuyOpportunityScanner.cs'
+          replace_once(path, 'new ProductInfoHeaderValue("ShouldI", "1.1.7")', 'new ProductInfoHeaderValue("ShouldI", "1.1.8")')
+          PY
+
+      - name: Commit feature changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ShouldISell
+          if git diff --cached --quiet; then
+            echo "No patch changes to commit."
+          else
+            git commit -m "Release v1.1.8 Tycoon cashflow and listing state age"
+            git push origin feature/v1.1.8-tycoon-cashflow-listing-age
+          fi
