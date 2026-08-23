@@ -5,11 +5,11 @@
 <h1 align="center">Should I?</h1>
 
 <p align="center">
-  <strong>Sell smarter. Buy smarter. Learn your trading style.</strong>
+  <strong>Know what to sell. Know what to buy. Know where your gil goes.</strong>
 </p>
 
 <p align="center">
-  An experimental FFXIV Market Board decision suite for Dalamud.
+  An FFXIV economy intelligence suite for Dalamud — Market Board decisions, gil cashflow, trading P&amp;L and personal market analytics.
 </p>
 
 <p align="center">
@@ -34,7 +34,7 @@ It is one plugin with three connected modules:
 |---|---|---|
 | **Should I Sell?** | *What in my inventory is actually worth listing?* | Sell rating, suggested price, stack size, after-tax value, listing audit and sales history |
 | **Should I Buy?** | *What can I buy right now with a reasonable chance of making gil?* | Budget-aware opportunities, ROI/profit/liquidity scoring, exact acquisition packages and live verification |
-| **Should I Tycoon?** | *Am I actually getting better at trading?* | Cost basis, open positions, realized/unrealized P&L, strategy performance, sales insights and listing behavior |
+| **Should I Tycoon?** | *Where does my gil come from, where does it go, and are my trades actually working?* | Wallet cashflow, categorized income/spend, trade positions, FIFO P&L, strategy performance, sales/listing insights and model calibration |
 
 > **Should I? is decision support, not automation.** It does not automatically buy items, sell items, change your listings, or promise profit.
 
@@ -183,49 +183,62 @@ This is useful when you would rather deploy 500,000g across several independent 
 
 # Should I Tycoon?
 
-Should I Tycoon? is the personal learning layer.
+Should I Tycoon? is the personal economy layer of the suite. It is no longer only a flip tracker: it separates **your actual gil cashflow** from **your trading economics**, then connects both back to Should I Buy? and Should I Sell?.
 
-The Buy module can predict a trade. Tycoon watches what happened afterward and builds a local history of your actual behavior.
+### Wallet cashflow
 
-### Cost basis and P&L
+While Should I? is running, Tycoon observes the player gil balance and records direct wallet increases and decreases. The amount is exact; the source is only auto-labeled when the plugin has evidence strong enough to prove it.
 
-When the plugin observes a confirmed Market Board purchase, it can persist the exact acquisition cost — including reported buyer tax — and associate it with the Buy recommendation that existed when applicable.
+That gives you:
 
-Captured sales are then joined to known purchases using **FIFO accounting**.
+- current observed wallet balance,
+- observed income, spending and net cashflow,
+- editable categories for **Market Board, vendors, quests, duties/roulettes, teleport, repairs, crafting/materials, glamour, housing, player trades, retainer transfers and other activity**,
+- a category breakdown showing where your gil actually moves,
+- explicit **Unclassified** entries instead of invented source attribution.
 
-Tycoon can show:
+Confirmed Market Board purchases are particularly strong evidence: Tycoon already knows the exact item, quantity, purchase price and buyer tax, so matching wallet decreases can be classified automatically.
 
-- open positions,
-- realized P&L,
-- unrealized/model-based position value,
-- item performance,
-- strategy performance,
-- prediction vs. reality calibration,
+Tycoon does **not** fabricate offline cashflow. Login or character switching establishes a new balance baseline.
+
+### Trade positions, cost basis and P&L
+
+Every confirmed Market Board purchase can still enter the trading ledger with exact cost basis, including buyer tax. If it matches a current Should I Buy? recommendation, the strategy and model prediction travel with the purchase.
+
+Captured retainer sales are joined to trade lots using **FIFO accounting**, producing:
+
+- trade positions and open cost basis,
+- realized and model-based unrealized P&L,
+- ROI and holding time,
+- item and strategy performance,
+- prediction-vs-reality calibration,
 - trader-profile summaries.
 
-If Should I? does **not** know what you paid for an item, it does not invent a purchase price. Gathered, crafted, dropped, gifted or pre-tracking stock can still contribute to sales insights without producing fictional profit figures.
+Normal purchases no longer have to pollute this analysis. The **Purchases** tab lets you mark any lot **Personal** — for crafting, glamour, housing or anything else. The spending remains in cashflow history, but the lot is removed from FIFO trading positions/P&L. You can switch it back to **Track as trade** at any time.
+
+If Should I? does **not** know what you paid for something, it still refuses to invent a cost basis. Gathered, crafted, dropped, gifted or pre-tracking stock can contribute to sales insights without producing fictional profit figures.
+
+### Retainer sales vs. wallet transfers
+
+A Market Board sale is earned by a retainer before that gil necessarily reaches the player wallet. Tycoon therefore keeps **captured Market Board sale income** as its own high-confidence economic source rather than pretending that a later retainer withdrawal is the original sale event. A withdrawal can be categorized as **Retainer transfer / internal** in cashflow.
 
 ### Sales Insights
 
-Sales Insights looks across all captured personal retainer sales, including stock with unknown cost basis. It is useful for learning things such as:
-
-- which items consistently move for you,
-- your strongest earners,
-- transaction frequency and units sold,
-- average and best realized sales,
-- when your personal selling activity is strongest.
+Sales Insights uses all captured personal retainer sales — including unknown-cost stock — to show what actually moves for you, your strongest earners, transaction frequency, units sold, realized prices and personal selling patterns.
 
 ### Listing Insights
 
-Should I? also observes traceable personal listing lifecycle states and can learn from:
+Should I? persistently observes your own listing lifecycle where it can do so safely:
 
+- total observed listing lifetime,
+- exact **price + quantity as-is age**,
+- price age and quantity age,
 - repricing,
 - quantity changes,
 - relisting behavior,
-- observed time-to-sale,
-- stack-size changes.
+- traceable time-to-sale.
 
-FFXIV does not expose every historical lifecycle event directly, so correlation is intentionally conservative. The plugin would rather mark something unknown than manufacture precision.
+FFXIV does not expose every historical lifecycle timestamp directly, so correlation is intentionally conservative. The plugin would rather mark something unknown than manufacture precision.
 
 ---
 
@@ -238,6 +251,7 @@ This section matters just as much as the feature list.
 - **No guaranteed profit.** Market participants can change prices and supply immediately after an observation.
 - **No silent cross-world recommendation mixing.** Normal Buy discovery is scoped to your current physical world. Cross-world trading should be an explicit mode, not an invisible assumption.
 - **No fictional cost basis.** Unknown acquisition cost stays unknown.
+- **No fictional gil-source attribution.** An exact wallet delta can remain Unclassified when FFXIV does not expose enough context to prove whether it came from a quest, duty, vendor, trade, etc.
 - **No assumption that NPC supply is scarce.** Renewable normal-vendor NQ goods receive special protection against false buyout opportunities.
 - **No instant full-market native scan.** Native FFXIV searches are intentionally paced one item at a time.
 

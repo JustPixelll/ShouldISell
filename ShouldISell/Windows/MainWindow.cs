@@ -808,7 +808,7 @@ public sealed partial class MainWindow : Window, IDisposable
             ImGui.TableSetupColumn("Price age", ImGuiTableColumnFlags.WidthFixed, 78 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Units/day", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Last seen", ImGuiTableColumnFlags.WidthFixed, 78 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("As-is", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.NoSort, 78 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn("As-is", ImGuiTableColumnFlags.WidthFixed, 78 * ImGuiHelpers.GlobalScale);
             DrawHeaderRow(ListingHeaderHelp);
 
             rows = SortOwnListings(rows, ImGui.TableGetSortSpecs());
@@ -1225,7 +1225,7 @@ public sealed partial class MainWindow : Window, IDisposable
         };
     }
 
-    private static List<RatedOwnListing> SortOwnListings(List<RatedOwnListing> rows, ImGuiTableSortSpecsPtr sortSpecs)
+    private List<RatedOwnListing> SortOwnListings(List<RatedOwnListing> rows, ImGuiTableSortSpecsPtr sortSpecs)
     {
         if (sortSpecs.IsNull || sortSpecs.SpecsCount == 0)
             return rows;
@@ -1247,6 +1247,7 @@ public sealed partial class MainWindow : Window, IDisposable
             OwnListingColumn.PriceAge => OrderRows(rows, x => x.Listing.PriceChangedUtc, descending),
             OwnListingColumn.UnitsPerDay => OrderRows(rows, x => x.Rating?.UnitsPerDay ?? -1.0, descending),
             OwnListingColumn.LastSeen => OrderRows(rows, x => x.Listing.LastSeenUtc, descending),
+            OwnListingColumn.AsIs => OrderRows(rows, x => ListingStateAgeSeconds(x.Listing), descending),
             _ => rows,
         };
     }
@@ -1284,6 +1285,14 @@ public sealed partial class MainWindow : Window, IDisposable
         PriceAge = 10,
         UnitsPerDay = 11,
         LastSeen = 12,
+        AsIs = 13,
+    }
+
+    private double ListingStateAgeSeconds(OwnMarketListing listing)
+    {
+        var timing = plugin.ListingHistory.GetTiming(listing.CharacterContentId, listing);
+        var since = timing?.StateSinceUtc ?? listing.FirstSeenUtc;
+        return Math.Max(0, (DateTimeOffset.UtcNow - since).TotalSeconds);
     }
 
     private static double PriceChangeRatio(RatedOwnListing row)

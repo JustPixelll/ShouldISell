@@ -6,16 +6,18 @@ Repository:
 JustPixelll/ShouldISell
 ```
 
+The public product is **Should I?**. The repository/internal identifier remains `ShouldISell` only for plugin compatibility and in-place upgrades. Do not rename `InternalName` casually; existing Dalamud installations use it as identity.
+
 ## Recommended GitHub description
 
 ```text
-Should I? — an experimental FFXIV Dalamud Market Board decision suite for smarter selling, buying, portfolio selection and personal trading insights.
+Should I? — FFXIV economy intelligence for Dalamud: sell optimization, executable Market Board buys, gil cashflow, FIFO P&L, and personal trading/listing analytics.
 ```
 
 Shorter alternative:
 
 ```text
-FFXIV Dalamud market-analysis suite: Should I Sell?, Should I Buy? and Should I Tycoon?.
+FFXIV economy intelligence: selling, buying, gil cashflow, P&L and personal Market Board analytics.
 ```
 
 ## Recommended repository topics
@@ -28,6 +30,10 @@ ffxiv-plugin
 market-board
 universalis
 market-analysis
+economy
+gil
+cashflow
+profit-tracking
 trading
 arbitrage
 inventory
@@ -44,12 +50,10 @@ utility
 https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/pluginmaster.json
 ```
 
-The public product name is **Should I?** with three connected modules:
+## Product structure
 
-- Should I Sell?
-- Should I Buy?
-- Should I Tycoon?
-
-The internal/repository identity intentionally remains `ShouldISell` for compatibility and in-place upgrades.
+- **Should I Sell?** — inventory/listing decisions, pricing, stacks and sales history.
+- **Should I Buy?** — executable opportunity discovery, capital/risk modeling and native verification.
+- **Should I Tycoon?** — gil cashflow, trade cost basis/P&L, purchase purpose, sales insights, listing lifecycle and personal model calibration.
 
 See `README.md` for the public landing page and `RELEASING.md` for the maintainer release workflow.
