@@ -4,9 +4,9 @@
     "Name": "Should I?",
     "Punchline": "Sell smarter. Buy smarter. Learn your trading style.",
     "Description": "One FFXIV Market Board suite containing Should I Sell?, Should I Buy?, and Should I Tycoon?: selling guidance, budget-aware opportunity scanning, vendor and stack arbitrage analysis, confirmed purchase cost-basis capture, personal sales history, and trader performance analytics.",
-    "Changelog": "# Should I? v1.1.1\r\n\r\nFocused **Should I Buy?** usability and portfolio-control update.\r\n\r\n## Opportunity table\r\n- Rating is visible in both the main opportunities table and the budget basket.\r\n- Main rows highlight across the full table width and open the opportunity analysis when clicked.\r\n- Every main column is sortable with visible ascending/descending state.\r\n- Scanner controls, headers and key metrics now explain themselves on hover.\r\n\r\n## Budget portfolio\r\n- Adds a player-set basket cap from 1 to 20 positions, defaulting to 8.\r\n- The cap is enforced inside the capital allocator together with the gil budget rather than trimming the displayed result afterward.\r\n\r\n## Opportunity detail page\r\n- Clicking an opportunity now opens a dedicated analysis page with Back navigation.\r\n- Adds acquisition package, average and maximum buy price, existing/resulting position, exit price and stack plan, listing count, potential and risk-adjusted profit, ROI, capital efficiency, demand evidence, sale samples, market freshness, exact acquisition listings, score methodology, model notes and LIVE VERIFY.\r\n\r\nRecommendations remain read-only; Should I? never automatically purchases Market Board listings.",
+    "Changelog": "# Should I? v1.1.2\r\n\r\nFocused **Should I Buy?** world-safety and live-verification update based on live testing.\r\n\r\n## Current-world safety\r\n- Normal Buy recommendations are scoped to the world you are physically on now.\r\n- Cached recommendations from a different visited world are hidden rather than silently shown as local opportunities.\r\n- Changing worlds during discovery or detailed Universalis analysis discards that run.\r\n- The opportunity detail page shows the market world explicitly.\r\n- Cross-world trading is intentionally left for a separate explicit opt-in mode.\r\n\r\n## Clear scan stages\r\n- **Discover Good Buys (Universalis)** is the broad market-universe pass.\r\n- **Detailed Universalis** fetches full listings and 90-day history only for the strongest candidate items.\r\n- **LIVE VERIFY THIS ITEM ONLY** performs one native FFXIV ItemSearch request for the selected item and never starts the broad discovery pass.\r\n- LIVE VERIFY warns when the Market Board/retainer market UI is not visible because the native ItemSearch proxy may not be ready.\r\n\r\n## Usability\r\n- Right-click item names in the Buy results, budget basket, or detail page to copy the item name to the clipboard.\r\n\r\nRecommendations remain read-only and Should I? never automatically purchases Market Board listings.",
     "InternalName": "ShouldISell",
-    "AssemblyVersion": "1.1.1.0",
+    "AssemblyVersion": "1.1.2.0",
     "RepoUrl": "https://github.com/JustPixelll/ShouldISell",
     "ApplicableVersion": "any",
     "CategoryTags": [
@@ -18,10 +18,10 @@
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/overview.png",
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/details.png"
     ],
-    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v1.1.1/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v1.1.1/latest.zip",
+    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v1.1.2/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v1.1.2/latest.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "LastUpdate": "1787513625"
+    "LastUpdate": "1787514741"
   }
 ]
