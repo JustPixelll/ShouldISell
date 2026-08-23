@@ -126,15 +126,11 @@ public sealed class BuyUniversalisClient : IDisposable
                 {
                     foreach (var upload in uploads.EnumerateArray())
                     {
-                        if (GetUInt(upload, "worldId") != 0 && GetUInt(upload, "worldId") != GetUInt(upload, "worldID"))
-                        {
-                            // Keep parsing tolerant of schema casing; the timestamp is what matters here.
-                        }
                         var timestamp = GetLong(upload, "timestamp");
                         if (timestamp <= 0)
                             continue;
                         var at = DateTimeOffset.FromUnixTimeSeconds(timestamp);
-                        if (freshest is null || at > freshest)
+                        if (freshest is null || at > freshest.Value)
                             freshest = at;
                     }
                 }
