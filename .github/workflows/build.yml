@@ -30,6 +30,9 @@ jobs:
           }
           python -m pip install --disable-pip-version-check pillow
           python .github/v2_patch.py
+          # The GitHub Actions token cannot push workflow-file changes. Keep those for a separate
+          # connector commit after the code/docs/icon patch has landed.
+          git checkout HEAD -- .github/workflows/build.yml .github/workflows/release.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
