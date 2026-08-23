@@ -1,12 +1,12 @@
 [
   {
     "Author": "JustPixelll",
-    "Name": "Should I Sell?",
-    "Punchline": "Know what to sell, how much, and for how much.",
-    "Description": "Analyze every known marketable item you own using live FFXIV Market Board data, Universalis history, supply and demand, stack behavior, vendor economics and after-tax value. Get sell ratings, suggested prices and stack sizes, full live audits, current-listing guidance, and recommended-listing payout estimates.",
-    "Changelog": "# Should I Sell? v1.0.0 â€” Passive Sales & Retainer Alerts\r\n\r\nThis is the first 1.0 release of Should I Sell?. It turns the personal sales ledger into an always-on feature and makes active listing maintenance substantially faster.\r\n\r\n## Automatic Sales History\r\n\r\n- Retainer-sale announcements are captured automatically while you are online.\r\n- The live notification supplies the linked item, sold quantity and after-fees gil, so new sales can be persisted immediately without opening a retainer.\r\n- Cached listing evidence is used to attribute the retainer only when that attribution is unambiguous.\r\n- Opening **View sale history** still matters as an exact reconciliation/backfill path:\r\n  - offline sales can be added,\r\n  - live rows can be matched to the exact retainer,\r\n  - buyer names and exact server sale timestamps are filled in,\r\n  - duplicate live/history observations are merged instead of double-counted.\r\n- Sales History now shows whether a transaction is **Live**, **History**, or **Live + confirmed**.\r\n\r\n## Current Listings\r\n\r\n- Added a dedicated **Refresh current listings** button.\r\n- It requests fresh in-game Market Board data only for the unique items you currently have listed, instead of auditing every owned item.\r\n- Added `/sellcheck listings` for the same action.\r\n\r\n## Repricing Stability Fix\r\n\r\n- Fixed a self-undercut feedback bug where a listing could bounce between recommendations such as **81g â†’ 79g â†’ 81g** after each repricing.\r\n- Recommendation calculations now exclude all market-depth rows belonging to the player's known retainers for that item/HQ variant by retainer identity, rather than removing only an exact current price/quantity match.\r\n- This keeps stale copies of your own previous price from being treated as a competitor after a repricing change.\r\n\r\n## Retainer Market Attention\r\n\r\n- When FFXIV's **RetainerSellList** is open, Should I Sell? displays a small companion panel beside it.\r\n- Listings that need action receive an amber **!** and show the recommended price/stack change.\r\n- A `KEEP` price does not trigger a price alert; a stack mismatch still does.\r\n- The overlay is read-only and does not rewrite or click native FFXIV UI nodes.\r\n\r\n## Notes\r\n\r\n- Passive sale capture only sees sale notifications delivered while FFXIV/Should I Sell? is running. Exact retainer history remains the backfill for sales that happened while offline.\r\n- FFXIV normally exposes only a limited number of recent exact sale-history rows per retainer, so checking history occasionally is still useful.\r\n- Requires Dalamud API 15.",
+    "Name": "Should I?",
+    "Punchline": "Sell smarter. Buy smarter. Learn your trading style.",
+    "Description": "One FFXIV Market Board suite containing Should I Sell?, Should I Buy?, and Should I Tycoon?: selling guidance, budget-aware opportunity scanning, vendor and stack arbitrage analysis, confirmed purchase cost-basis capture, personal sales history, and trader performance analytics.",
+    "Changelog": "# Should I? v1.1.0\r\n\r\nThe first unified **Should I?** live release.\r\n\r\n## Should I Sell?\r\nKeeps the existing selling analysis, live refresh, stack guidance, current-listing audit, vendor economics, and personal sales history.\r\n\r\n## Should I Buy?\r\nAdds budget-aware Universalis opportunity discovery, deep listing/history analysis, market and vendor arbitrage, split/consolidate detection, risk-adjusted scoring, holding-time estimates, portfolio allocation, and LIVE VERIFY against fresh FFXIV Market Board data.\r\n\r\n## Should I Tycoon?\r\nAdds confirmed Market Board purchase capture, FIFO cost basis, realized/unrealized analytics, item and strategy performance, trader-profile analysis, and prediction-vs-reality calibration.\r\n\r\nThis release is being promoted directly for live single-tester validation. Recommendations remain read-only and Should I? never automatically purchases Market Board listings.",
     "InternalName": "ShouldISell",
-    "AssemblyVersion": "1.0.0.0",
+    "AssemblyVersion": "1.1.0.0",
     "RepoUrl": "https://github.com/JustPixelll/ShouldISell",
     "ApplicableVersion": "any",
     "CategoryTags": [
@@ -18,10 +18,10 @@
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/overview.png",
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/details.png"
     ],
-    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v1.0.0/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v1.0.0/latest.zip",
+    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v1.1.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v1.1.0/latest.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "LastUpdate": "1787508057"
+    "LastUpdate": "1787512422"
   }
 ]
