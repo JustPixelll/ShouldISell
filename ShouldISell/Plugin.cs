@@ -49,6 +49,7 @@ public sealed class Plugin : IDalamudPlugin
     public readonly WindowSystem WindowSystem = new("ShouldISell");
     private readonly MainWindow mainWindow;
     private readonly BuyWindow buyWindow;
+    private readonly BuyScopeWindow buyScopeWindow;
 
     public Plugin()
     {
@@ -67,7 +68,7 @@ public sealed class Plugin : IDalamudPlugin
         RefreshEngine = new ExperimentalRefreshEngine(Configuration, Framework, PlayerState, Catalog, Inventory, Store, MarketObserver, SellScanContext, Log);
         ListingAttentionOverlay = new RetainerListingAttentionOverlay(GameGui, PlayerState, Coordinator, Log);
 
-        BuyUniversalis = new BuyUniversalisClient(Log);
+        BuyUniversalis = new BuyUniversalisClient(Configuration, Catalog, Log);
         TradingLedger = new TradingLedgerStore(PluginInterface, Log);
         BuyEngine = new BuyOpportunityEngine(Configuration, PlayerState, Store, Catalog, Scores, BuyUniversalis, Log);
         PurchaseObserver = new MarketPurchaseObserver(MarketBoard, PlayerState, TradingLedger, BuyEngine, Log);
@@ -75,8 +76,10 @@ public sealed class Plugin : IDalamudPlugin
 
         mainWindow = new MainWindow(this);
         buyWindow = new BuyWindow(this);
+        buyScopeWindow = new BuyScopeWindow(this);
         WindowSystem.AddWindow(mainWindow);
         WindowSystem.AddWindow(buyWindow);
+        WindowSystem.AddWindow(buyScopeWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -84,7 +87,7 @@ public sealed class Plugin : IDalamudPlugin
         });
         CommandManager.AddHandler(BuyCommandName, new CommandInfo(OnBuyCommand)
         {
-            HelpMessage = "Open Should I Buy?. /buycheck scan starts a full opportunity scan; /buycheck stop cancels it.",
+            HelpMessage = "Open Should I Buy?. /buycheck scan starts a scan, /buycheck scope configures Market Board categories, /buycheck stop cancels a scan.",
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -116,6 +119,7 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(CommandName);
         CommandManager.RemoveHandler(BuyCommandName);
         WindowSystem.RemoveAllWindows();
+        buyScopeWindow.Dispose();
         buyWindow.Dispose();
         mainWindow.Dispose();
     }
@@ -170,6 +174,9 @@ public sealed class Plugin : IDalamudPlugin
             case "scan":
                 buyWindow.IsOpen = true;
                 _ = BuyEngine.ScanAsync();
+                break;
+            case "scope":
+                buyScopeWindow.IsOpen = true;
                 break;
             case "stop":
                 BuyEngine.Stop();
