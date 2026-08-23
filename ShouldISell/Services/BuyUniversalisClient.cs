@@ -37,7 +37,7 @@ public sealed class BuyUniversalisClient : IDisposable
         return doc.RootElement.EnumerateArray()
             .Select(x => x.TryGetUInt32(out var id) ? id : 0)
             .Where(x => x != 0)
-            .Where(x => enabledCategories.Count == 0 || enabledCategories.Contains(catalog.GetMarketSearchCategoryId(x)))
+            .Where(x => configuration.BuyUseAllSearchCategories || enabledCategories.Contains(catalog.GetMarketSearchCategoryId(x)))
             .Distinct()
             .ToList();
     }
