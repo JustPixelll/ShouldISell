@@ -9,9 +9,11 @@ public sealed partial class SuiteWindow
     private void DrawTycoonModule()
     {
         var snapshot = plugin.TraderAnalyzer.GetSnapshot();
-        ImGui.TextWrapped("Tycoon combines real Market Board purchases with every captured retainer sale. P&L remains FIFO and only uses known purchase cost basis, while Sales Insights also learns from gathered, crafted, dropped, gifted and pre-tracking stock. Listing Insights studies your own traceable listing lifecycle: repricing, stack-size changes, relists and time-to-sale.");
+        ImGui.TextWrapped("Tycoon is now both a gil/capital ledger and a trading laboratory. It records direct player-wallet changes while Should I? is running, keeps high-confidence Market Board purchase/sale economics separate, and still uses FIFO only for purchase lots you consider trading positions. Unknown wallet sources remain explicitly unclassified until you categorize them instead of Tycoon guessing.");
         ImGui.Spacing();
 
+        DrawTycoonCashflowSummary(snapshot);
+        ImGui.Spacing();
         DrawTraderProfile(snapshot);
         ImGui.Separator();
         DrawTraderMetrics(snapshot);
@@ -20,7 +22,12 @@ public sealed partial class SuiteWindow
 
         if (ImGui.BeginTabBar("##tycoon-tabs"))
         {
-            if (ImGui.BeginTabItem("Open Positions"))
+            if (ImGui.BeginTabItem("Cashflow"))
+            {
+                DrawTycoonCashflow();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Trade Positions"))
             {
                 DrawOpenPositions(snapshot);
                 ImGui.EndTabItem();
@@ -28,6 +35,11 @@ public sealed partial class SuiteWindow
             if (ImGui.BeginTabItem("Closed Trades"))
             {
                 DrawClosedTrades(snapshot);
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Purchases"))
+            {
+                DrawTycoonPurchases();
                 ImGui.EndTabItem();
             }
             if (ImGui.BeginTabItem("Best Items"))
@@ -81,7 +93,7 @@ public sealed partial class SuiteWindow
             MetricCell(2, "Open est. net value", Gil(snapshot.OpenEstimatedNetValue));
             MetricCell(3, "Unrealized est.", Gil(snapshot.UnrealizedProfit));
             ImGui.TableNextRow();
-            MetricCell(0, "Tracked purchases", snapshot.PurchaseCount.ToString("N0"));
+            MetricCell(0, "Trade purchases", snapshot.PurchaseCount.ToString("N0"));
             MetricCell(1, "Matched sale events", snapshot.TrackedSaleCount.ToString("N0"));
             MetricCell(2, "Closed units", snapshot.ClosedUnits.ToString("N0"));
             MetricCell(3, "Open tracked units", snapshot.OpenUnits.ToString("N0"));
@@ -103,7 +115,7 @@ public sealed partial class SuiteWindow
 
     private static void DrawOpenPositions(TraderSnapshot snapshot)
     {
-        ImGui.TextDisabled("Open positions are remaining FIFO purchase lots. Suggested exit/value comes from the current Should I Sell? model when that item is present in your known inventory snapshots.");
+        ImGui.TextDisabled("Trade positions are remaining FIFO purchase lots currently marked as Trade. Purchases marked Personal remain in your real spending/cashflow history but are excluded from trading P&L and open positions. Suggested exit/value comes from the current Should I Sell? model when the item is present in known inventory snapshots.");
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
         if (!ImGui.BeginTable("##tycoon-open", 9, flags, new Vector2(0, -1)))
             return;

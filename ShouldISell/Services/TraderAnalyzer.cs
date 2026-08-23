@@ -56,7 +56,10 @@ public sealed class TraderAnalyzer
             return Empty(now, "Log in to build your trader profile.");
 
         var contentId = playerState.ContentId;
-        var purchases = traderStore.GetPurchases(contentId).OrderBy(x => x.PurchasedAtUtc).ToList();
+        var purchases = traderStore.GetPurchases(contentId)
+            .Where(x => !traderStore.IsPurchaseExcluded(x))
+            .OrderBy(x => x.PurchasedAtUtc)
+            .ToList();
         var sales = sellStore.GetPersonalSales(contentId).OrderBy(x => x.SoldAtUtc).ToList();
         var closed = new List<ClosedTrade>();
         var openLots = new List<MutableLot>();

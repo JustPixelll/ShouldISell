@@ -618,6 +618,9 @@ public sealed partial class MainWindow : Window, IDisposable
                 ImGui.TextUnformatted($"Expected current payout: {Gil(ExpectedListingPayout(listing))}");
                 ImGui.TextUnformatted($"Suggested change: {PriceChangeText(listing.UnitPrice, r.SuggestedPrice)}");
                 ImGui.TextDisabled($"Retainer: {listing.RetainerName} • known listed {Elapsed(listing.FirstSeenUtc)} • current price age {Elapsed(listing.PriceChangedUtc)}");
+                var timing = plugin.ListingHistory.GetTiming(listing.CharacterContentId, listing);
+                if (timing is not null)
+                    ImGui.TextDisabled($"Exact price + quantity state: {Elapsed(timing.StateSinceUtc)} • current quantity age {Elapsed(timing.QuantitySinceUtc)} • full observed lifetime {Elapsed(timing.FirstSeenUtc)}");
             }
 
             ImGui.EndTable();
@@ -789,7 +792,7 @@ public sealed partial class MainWindow : Window, IDisposable
         var tableHeight = listingDetailOpen ? 300 * ImGuiHelpers.GlobalScale : -1;
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY |
                     ImGuiTableFlags.ScrollX | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable;
-        if (ImGui.BeginTable("current-listings-table", 13, flags, new Vector2(0, tableHeight)))
+        if (ImGui.BeginTable("current-listings-table", 14, flags, new Vector2(0, tableHeight)))
         {
             ImGui.TableSetupScrollFreeze(0, 1);
             ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 125 * ImGuiHelpers.GlobalScale);
@@ -805,6 +808,7 @@ public sealed partial class MainWindow : Window, IDisposable
             ImGui.TableSetupColumn("Price age", ImGuiTableColumnFlags.WidthFixed, 78 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Units/day", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Last seen", ImGuiTableColumnFlags.WidthFixed, 78 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn("As-is", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.NoSort, 78 * ImGuiHelpers.GlobalScale);
             DrawHeaderRow(ListingHeaderHelp);
 
             rows = SortOwnListings(rows, ImGui.TableGetSortSpecs());
@@ -854,6 +858,8 @@ public sealed partial class MainWindow : Window, IDisposable
                 ImGui.TextUnformatted(row.Rating is null ? "—" : row.Rating.UnitsPerDay.ToString("0.##"));
                 ImGui.TableSetColumnIndex(12);
                 ImGui.TextUnformatted(Age(row.Listing.LastSeenUtc));
+                ImGui.TableSetColumnIndex(13);
+                DrawListingStateAge(row.Listing);
             }
 
             ImGui.EndTable();
@@ -861,6 +867,30 @@ public sealed partial class MainWindow : Window, IDisposable
 
         if (selected is { Listing: not null } listingSelection)
             DrawSelectedDetails(listingSelection);
+    }
+
+    private void DrawListingStateAge(OwnMarketListing listing)
+    {
+        var timing = plugin.ListingHistory.GetTiming(listing.CharacterContentId, listing);
+        if (timing is null)
+        {
+            ImGui.TextDisabled("—");
+            return;
+        }
+
+        ImGui.TextUnformatted(Elapsed(timing.StateSinceUtc));
+        if (!ImGui.IsItemHovered())
+            return;
+
+        ImGui.BeginTooltip();
+        ImGui.TextUnformatted($"Exact price + quantity unchanged: {Elapsed(timing.StateSinceUtc)}");
+        ImGui.TextUnformatted($"Observed listing lifetime: {Elapsed(timing.FirstSeenUtc)}");
+        ImGui.TextDisabled("Listing lifetime includes the time before observed quantity changes.");
+        ImGui.TextUnformatted($"Current price unchanged: {Elapsed(timing.PriceSinceUtc)}");
+        ImGui.TextUnformatted($"Current quantity unchanged: {Elapsed(timing.QuantitySinceUtc)}");
+        ImGui.Separator();
+        ImGui.TextWrapped("These are observation ages. FFXIV does not provide the original server-side listing timestamp, and a change made while Should I? cannot observe that retainer is timestamped when the listing is next seen.");
+        ImGui.EndTooltip();
     }
 
     private void DrawListingFilters()
@@ -935,6 +965,7 @@ public sealed partial class MainWindow : Window, IDisposable
         ("Price age", "How long the currently observed price has remained unchanged in this market slot."),
         ("Units/day", "Recent estimated units sold per day for this item/HQ variant."),
         ("Last seen", "How recently the addon saw this listing in the loaded retainer-market container."),
+        ("As-is", "How long the exact currently observed price + quantity combination has remained unchanged. Hover for full observed listing lifetime, current-price age and current-quantity age. The full listing lifetime does not reset when quantity changes."),
     };
 
     private static void DrawStackCell(SellRating? rating, string? context = null)
