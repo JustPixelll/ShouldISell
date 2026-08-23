@@ -1,4 +1,4 @@
-name: Build Should I Sell
+name: Build Should I?
 
 on:
   push:
@@ -48,7 +48,7 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ShouldISell
+          name: ShouldI
           path: ${{ steps.package.outputs.path }}
           if-no-files-found: error
           retention-days: 7
