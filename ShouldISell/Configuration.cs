@@ -29,6 +29,9 @@ public sealed class Configuration : IPluginConfiguration
     public bool BuyEnableMarketToVendor { get; set; } = true;
     public bool BuyIncludeHq { get; set; } = true;
 
+    // Empty means every FFXIV Market Board ItemSearchCategory is eligible.
+    public List<uint> BuyEnabledSearchCategoryIds { get; set; } = new();
+
     // Technical controls. These do not express a player preference about which item is "better".
     public int UniversalisCurrentTtlMinutes { get; set; } = 15;
     public int UniversalisHistoryTtlMinutes { get; set; } = 60;
@@ -70,9 +73,12 @@ public sealed class Configuration : IPluginConfiguration
             BuyMaximumBudgetFractionPerItem = Math.Clamp(BuyMaximumBudgetFractionPerItem, 0.01, 1.0);
             BuyDeepCandidateLimit = Math.Clamp(BuyDeepCandidateLimit, 20, 500);
             BuyEstimatedBuyerTaxRate = Math.Clamp(BuyEstimatedBuyerTaxRate, 0.0, 0.25);
+            BuyEnabledSearchCategoryIds ??= new List<uint>();
             Version = 4;
             changed = true;
         }
+
+        BuyEnabledSearchCategoryIds ??= new List<uint>();
 
         if (changed)
             Save();
