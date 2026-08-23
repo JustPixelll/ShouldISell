@@ -1,4 +1,4 @@
-# Should I Sell? — agreed design
+# Should I? — Should I Sell? scoring design
 
 ## Product question
 

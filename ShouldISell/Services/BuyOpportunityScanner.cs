@@ -46,7 +46,7 @@ public sealed class BuyOpportunityScanner : IDisposable
 
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(30);
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "1.1.8"));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "2.0.0"));
     }
 
     public bool IsScanning { get; private set; }
@@ -55,6 +55,9 @@ public sealed class BuyOpportunityScanner : IDisposable
     public int BroadItemsTotal { get; private set; }
     public int DeepItemsScanned { get; private set; }
     public int DeepItemsTotal { get; private set; }
+    public int BroadSignalVariants { get; private set; }
+    public int LocalDeepCandidates { get; private set; }
+    public int RescueDeepCandidates { get; private set; }
     public DateTimeOffset? LastCompletedUtc { get; private set; }
 
     public IReadOnlyList<BuyOpportunity> GetOpportunities()
@@ -83,6 +86,9 @@ public sealed class BuyOpportunityScanner : IDisposable
             IsScanning = true;
             BroadItemsScanned = 0;
             DeepItemsScanned = 0;
+            BroadSignalVariants = 0;
+            LocalDeepCandidates = 0;
+            RescueDeepCandidates = 0;
             inventory.ScanLoadedContainers(forceFlush: true);
 
             var settings = SnapshotSettings();
@@ -135,27 +141,51 @@ public sealed class BuyOpportunityScanner : IDisposable
                 .Select(x => x.First())
                 .ToList();
 
+            BroadSignalVariants = selectedVariants.Count;
             var candidateGroups = selectedVariants
                 .GroupBy(x => x.Entry.Item.ItemId)
                 .ToList();
             var selectedIds = new HashSet<uint>();
 
-            // v1.1.7: the old broad shortlist was dominated by raw ROI. A 1g -> 20,000g anomaly
-            // could therefore outrank a 100,000g -> 1,000,000g opportunity by orders of magnitude
-            // before either item ever received 90-day history. Reserve roughly one third of the
-            // expensive detailed lookups for the largest plausible absolute-gil gaps, then fill
-            // the rest by the balanced rough score. Final recommendations still use only detailed
-            // current-world listings/history and the normal Buy safety gates.
-            var highGilSlots = Math.Max(1, settings.DeepCandidateLimit / 3);
-            foreach (var group in candidateGroups
-                         .Where(g => g.Max(x => x.EstimatedUnitProfit) > 0)
-                         .OrderByDescending(g => g.Max(x => x.EstimatedUnitProfit))
+            // v2.0: keep rare-item discovery, but do not let discovery-only DC/region/listing
+            // evidence crowd current-world sellers out of the expensive 90-day deep stage.
+            // The main pool is current-world sale-backed. A bounded rescue pool is explicitly
+            // reserved for rare items, and a separate local high-gil lane protects large flips.
+            var rescueSlots = Math.Clamp(settings.DeepCandidateLimit / 6, 6, 40);
+            var highGilSlots = Math.Clamp(settings.DeepCandidateLimit / 4, 8, 100);
+            var balancedLocalSlots = Math.Max(1, settings.DeepCandidateLimit - rescueSlots - highGilSlots);
+
+            var localGroups = candidateGroups
+                .Where(g => g.Any(x => x.LocalMarketSignal || x.GuaranteedVendorSignal))
+                .ToList();
+            var rescueGroups = candidateGroups
+                .Where(g => g.Any(x => x.RareRescueSignal) && !g.Any(x => x.LocalMarketSignal))
+                .ToList();
+
+            foreach (var group in localGroups
+                         .OrderByDescending(g => g.Max(x => x.RoughScore))
+                         .ThenByDescending(g => g.Max(x => x.EstimatedUnitProfit))
+                         .Take(balancedLocalSlots))
+                selectedIds.Add(group.Key);
+
+            foreach (var group in localGroups
+                         .Where(g => g.Any(x => x.LocalMarketSignal && x.EstimatedUnitProfit > 0))
+                         .OrderByDescending(g => g.Where(x => x.LocalMarketSignal).Max(x => x.EstimatedUnitProfit))
                          .ThenByDescending(g => g.Max(x => x.RoughScore))
                          .Take(highGilSlots))
                 selectedIds.Add(group.Key);
 
-            foreach (var group in candidateGroups
+            foreach (var group in rescueGroups
                          .OrderByDescending(g => g.Max(x => x.RoughScore))
+                         .ThenByDescending(g => g.Max(x => x.EstimatedUnitProfit))
+                         .Take(rescueSlots))
+                selectedIds.Add(group.Key);
+
+            // Duplicates between the balanced and high-gil lanes can leave free slots. Fill them
+            // with the best remaining groups, always preferring current-world signals first.
+            foreach (var group in candidateGroups
+                         .OrderByDescending(g => g.Any(x => x.LocalMarketSignal || x.GuaranteedVendorSignal))
+                         .ThenByDescending(g => g.Max(x => x.RoughScore))
                          .ThenByDescending(g => g.Max(x => x.EstimatedUnitProfit)))
             {
                 if (selectedIds.Count >= settings.DeepCandidateLimit)
@@ -163,8 +193,8 @@ public sealed class BuyOpportunityScanner : IDisposable
                 selectedIds.Add(group.Key);
             }
 
-            // Guaranteed vendor-floor opportunities are cheap and deterministic enough to deserve
-            // a deep look even if their normal market-sale statistics are weak.
+            // Guaranteed vendor-floor opportunities are deterministic enough to deserve a deep
+            // look even if the normal market-sale statistics are weak.
             foreach (var id in rough.Where(x => x.GuaranteedVendorSignal)
                          .OrderByDescending(x => x.RoughScore)
                          .Select(x => x.Entry.Item.ItemId)
@@ -175,6 +205,12 @@ public sealed class BuyOpportunityScanner : IDisposable
             selectedVariants = selectedVariants
                 .Where(x => selectedIds.Contains(x.Entry.Item.ItemId))
                 .ToList();
+
+            LocalDeepCandidates = selectedIds.Count(id =>
+                selectedVariants.Any(x => x.Entry.Item.ItemId == id && x.LocalMarketSignal));
+            RescueDeepCandidates = selectedIds.Count(id =>
+                !selectedVariants.Any(x => x.Entry.Item.ItemId == id && x.LocalMarketSignal) &&
+                selectedVariants.Any(x => x.Entry.Item.ItemId == id && x.RareRescueSignal));
 
             DeepItemsTotal = selectedIds.Count;
             Status = $"Detailed Universalis: 0 / {DeepItemsTotal:N0} candidate items...";
@@ -236,7 +272,9 @@ public sealed class BuyOpportunityScanner : IDisposable
                 opportunities = final;
 
             LastCompletedUtc = DateTimeOffset.UtcNow;
-            Status = $"Ready: {final.Count:N0} opportunity package(s) from {universe.Count:N0} scoped items.";
+            Status = $"Ready: {final.Count:N0} opportunity package(s) from {universe.Count:N0} items. " +
+                     $"Broad signals {BroadSignalVariants:N0}; detailed {DeepItemsTotal:N0} " +
+                     $"({LocalDeepCandidates:N0} local + {RescueDeepCandidates:N0} rare rescue).";
         }
         catch (OperationCanceledException)
         {
@@ -640,27 +678,43 @@ public sealed class BuyOpportunityScanner : IDisposable
         if (variant.MinListing <= 0 && discovery.Price <= 0)
             return;
 
-        // Aggregated sale price/velocity covers only a very short recent window. Rare expensive
-        // items can have no world sale in that window even though the world has useful 90-day
-        // history. DC/region values and listing medians may therefore rescue an item for the deep
-        // shortlist, but they NEVER become the final exit evidence.
         var conservativeUnitCost = variant.MinListing * (1.0 + ConservativeBuyerTaxRate);
-        var netDiscoveryReference = discovery.Price * (1.0 - ScoreCalculator.MarketSellerTaxRate);
-        var marketMargin = conservativeUnitCost > 0
-            ? (netDiscoveryReference - conservativeUnitCost) / conservativeUnitCost
-            : 0;
-        var estimatedUnitProfit = Math.Max(0, netDiscoveryReference - conservativeUnitCost);
         var perItemBudget = Math.Min(settings.BudgetGil,
             Math.Max(1L, settings.BudgetGil * Math.Clamp(settings.MaxInvestmentPercentPerItem, 1, 100) / 100L));
         var affordableSingleUnit = conservativeUnitCost > 0 && conservativeUnitCost <= perItemBudget;
         var vendorContested = HasRenewableVendorSupply(item, isHq);
-        var marketSignal = settings.EnableMarketToMarket && !vendorContested &&
-                           variant.MinListing > 0 && discovery.Price > 0 && affordableSingleUnit &&
-                           marketMargin >= settings.MinimumRoi * 0.60;
 
-        // Vendor -> Market stays deliberately world-local. Broader DC/region prices should never
-        // manufacture a convenience-arbitrage recommendation on a world where nobody is buying it.
+        // Primary discovery is deliberately current-world and sale-backed. This is the pool that
+        // produced useful breadth before v1.1.7 and it must not be displaced by thousands of
+        // speculative remote/listing-only gaps.
         var netWorldAverage = variant.AverageSalePrice * (1.0 - ScoreCalculator.MarketSellerTaxRate);
+        var localMargin = conservativeUnitCost > 0
+            ? (netWorldAverage - conservativeUnitCost) / conservativeUnitCost
+            : 0;
+        var localUnitProfit = Math.Max(0, netWorldAverage - conservativeUnitCost);
+        var localMarketSignal = settings.EnableMarketToMarket && !vendorContested &&
+                                variant.MinListing > 0 && affordableSingleUnit &&
+                                variant.AverageSalePrice > 0 && variant.DailyVelocity > 0.001 &&
+                                localMargin >= settings.MinimumRoi * 0.60;
+
+        // Rare-item rescue is intentionally a separate signal. It may use DC/region sales or
+        // conservative listing medians only to earn a LIMITED deep-history slot. It never becomes
+        // final exit evidence and it requires evidence of demand outside the empty local 4-day window.
+        var broaderVelocity = variant.DcDailyVelocity > 0
+            ? variant.DcDailyVelocity
+            : variant.RegionDailyVelocity;
+        var netDiscoveryReference = discovery.Price * (1.0 - ScoreCalculator.MarketSellerTaxRate);
+        var discoveryMargin = conservativeUnitCost > 0
+            ? (netDiscoveryReference - conservativeUnitCost) / conservativeUnitCost
+            : 0;
+        var discoveryUnitProfit = Math.Max(0, netDiscoveryReference - conservativeUnitCost);
+        var rescueThreshold = Math.Max(settings.MinimumRoi * 0.85, 0.08);
+        var rareRescueSignal = settings.EnableMarketToMarket && !vendorContested && !localMarketSignal &&
+                               variant.MinListing > 0 && affordableSingleUnit && discovery.Price > 0 &&
+                               broaderVelocity > 0.001 && discoveryMargin >= rescueThreshold;
+
+        // Vendor -> Market stays deliberately world-local. Broader prices never manufacture a
+        // convenience-arbitrage recommendation on a world where nobody is buying it.
         var vendorMarketMargin = !isHq && item.VendorGilShopPrice is > 0
             ? (netWorldAverage - item.VendorGilShopPrice.Value) / item.VendorGilShopPrice.Value
             : double.NegativeInfinity;
@@ -670,26 +724,30 @@ public sealed class BuyOpportunityScanner : IDisposable
         var vendorFloorSignal = settings.EnableMarketToVendor && item.VendorBuybackPrice > 0 && variant.MinListing > 0 &&
                                 variant.MinListing * (1 + ConservativeBuyerTaxRate) < item.VendorBuybackPrice;
 
-        if (!marketSignal && !vendorMarketSignal && !vendorFloorSignal)
+        if (!localMarketSignal && !rareRescueSignal && !vendorMarketSignal && !vendorFloorSignal)
             return;
 
-        // Keep discovery ranking on the same conceptual scale as the final Buy score: ROI is
-        // logarithmic/capped rather than linear, while absolute gil has real weight. This prevents
-        // penny anomalies from monopolising every detailed-history slot.
-        var localVelocity = Clamp01(Math.Log10(1 + Math.Max(0, variant.DailyVelocity)) / Math.Log10(31));
-        var broaderVelocity = variant.DailyVelocity > 0
-            ? variant.DailyVelocity
-            : variant.DcDailyVelocity > 0
-                ? variant.DcDailyVelocity * 0.50
-                : variant.RegionDailyVelocity * 0.25;
-        var discoveryVelocity = Clamp01(Math.Log10(1 + Math.Max(0, broaderVelocity)) / Math.Log10(31));
+        var localVelocityScore = Clamp01(Math.Log10(1 + Math.Max(0, variant.DailyVelocity)) / Math.Log10(31));
+        var rescueVelocityScore = Clamp01(Math.Log10(1 + Math.Max(0, broaderVelocity * 0.5)) / Math.Log10(31));
 
         var marketRough = 0.0;
-        if (marketSignal)
+        var estimatedUnitProfit = 0.0;
+        if (localMarketSignal)
         {
-            var roiScore = RoughRoiScore(marketMargin);
-            var profitScore = ScoreProfit(estimatedUnitProfit, settings.MinimumProfitGil);
-            marketRough = 100 * (0.45 * roiScore + 0.40 * profitScore + 0.15 * discoveryVelocity) * discovery.Confidence;
+            marketRough = 100 * (
+                0.42 * RoughRoiScore(localMargin) +
+                0.40 * ScoreProfit(localUnitProfit, settings.MinimumProfitGil) +
+                0.18 * localVelocityScore);
+            estimatedUnitProfit = localUnitProfit;
+        }
+        else if (rareRescueSignal)
+        {
+            // Rescue candidates are intentionally discounted before shortlist competition.
+            marketRough = 100 * (
+                0.42 * RoughRoiScore(discoveryMargin) +
+                0.40 * ScoreProfit(discoveryUnitProfit, settings.MinimumProfitGil) +
+                0.18 * rescueVelocityScore) * discovery.Confidence * 0.80;
+            estimatedUnitProfit = discoveryUnitProfit;
         }
 
         var vendorRough = 0.0;
@@ -699,7 +757,7 @@ public sealed class BuyOpportunityScanner : IDisposable
             vendorRough = 100 * (
                 0.55 * RoughRoiScore(vendorMarketMargin) +
                 0.30 * ScoreProfit(vendorUnitProfit, settings.MinimumProfitGil) +
-                0.15 * localVelocity);
+                0.15 * localVelocityScore);
         }
 
         var roughScore = Math.Max(marketRough, vendorRough);
@@ -712,10 +770,12 @@ public sealed class BuyOpportunityScanner : IDisposable
             variant,
             roughScore,
             vendorFloorSignal,
-            marketSignal ? estimatedUnitProfit : 0,
+            estimatedUnitProfit,
             discovery.Price,
             discovery.Label,
-            discovery.IsWorldRecentSale));
+            discovery.IsWorldRecentSale,
+            localMarketSignal,
+            rareRescueSignal));
     }
 
     private static double RoughRoiScore(double margin)
@@ -723,29 +783,37 @@ public sealed class BuyOpportunityScanner : IDisposable
 
     private static DiscoveryReference GetDiscoveryReference(AggregatedVariant variant)
     {
-        var candidates = new List<DiscoveryReference>(6);
-
-        // Wider scopes are intentionally discounted because they are only a reason to spend a
-        // detailed current-world lookup, not proof that the local exit exists.
+        // Evidence is hierarchical, not "pick the highest number". The v1.1.7 implementation
+        // could let an inflated region/listing median override a perfectly good local sale anchor,
+        // which polluted the finite deep shortlist and is the core reason full scans could collapse
+        // to only one surviving recommendation.
         if (variant.AverageSalePrice > 0)
-            candidates.Add(new DiscoveryReference(variant.AverageSalePrice, "world 4-day average sale", 1.00, true));
-        if (variant.DcAverageSalePrice > 0)
-            candidates.Add(new DiscoveryReference(variant.DcAverageSalePrice * 0.95, "DC 4-day average sale (discovery-only)", 0.90, false));
-        if (variant.RegionAverageSalePrice > 0)
-            candidates.Add(new DiscoveryReference(variant.RegionAverageSalePrice * 0.90, "region 4-day average sale (discovery-only)", 0.82, false));
-        if (variant.MedianListing > 0)
-            candidates.Add(new DiscoveryReference(variant.MedianListing * 0.90, "world median listing (discovery-only)", 0.72, false));
-        if (variant.DcMedianListing > 0)
-            candidates.Add(new DiscoveryReference(variant.DcMedianListing * 0.82, "DC median listing (discovery-only)", 0.66, false));
-        if (variant.RegionMedianListing > 0)
-            candidates.Add(new DiscoveryReference(variant.RegionMedianListing * 0.75, "region median listing (discovery-only)", 0.58, false));
+            return new DiscoveryReference(variant.AverageSalePrice, "world 4-day average sale", 1.00, true, true);
 
-        return candidates.Count == 0
-            ? new DiscoveryReference(0, "no aggregate reference", 0, false)
-            : candidates
-                .OrderByDescending(x => x.Price)
-                .ThenByDescending(x => x.Confidence)
-                .First();
+        if (variant.DcAverageSalePrice > 0)
+        {
+            var price = variant.DcAverageSalePrice * 0.95;
+            if (variant.MedianListing > 0)
+                price = Math.Min(price, variant.MedianListing * 0.95);
+            return new DiscoveryReference(price, "DC recent sale (discovery-only)", 0.88, false, true);
+        }
+
+        if (variant.RegionAverageSalePrice > 0)
+        {
+            var price = variant.RegionAverageSalePrice * 0.90;
+            if (variant.MedianListing > 0)
+                price = Math.Min(price, variant.MedianListing * 0.92);
+            return new DiscoveryReference(price, "region recent sale (discovery-only)", 0.78, false, true);
+        }
+
+        if (variant.MedianListing > 0)
+            return new DiscoveryReference(variant.MedianListing * 0.82, "world median listing (rare rescue only)", 0.58, false, false);
+        if (variant.DcMedianListing > 0)
+            return new DiscoveryReference(variant.DcMedianListing * 0.72, "DC median listing (rare rescue only)", 0.48, false, false);
+        if (variant.RegionMedianListing > 0)
+            return new DiscoveryReference(variant.RegionMedianListing * 0.65, "region median listing (rare rescue only)", 0.40, false, false);
+
+        return new DiscoveryReference(0, "no aggregate reference", 0, false, false);
     }
 
     private async Task<IReadOnlyList<AggregatedItem>> FetchAggregatedAsync(uint worldId, IReadOnlyList<uint> ids, CancellationToken token)
@@ -1138,13 +1206,16 @@ public sealed class BuyOpportunityScanner : IDisposable
         double EstimatedUnitProfit,
         double DiscoveryReferencePrice,
         string DiscoveryReferenceLabel,
-        bool DiscoveryReferenceIsWorldRecentSale);
+        bool DiscoveryReferenceIsWorldRecentSale,
+        bool LocalMarketSignal,
+        bool RareRescueSignal);
 
     private sealed record DiscoveryReference(
         double Price,
         string Label,
         double Confidence,
-        bool IsWorldRecentSale);
+        bool IsWorldRecentSale,
+        bool IsSaleEvidence);
 
     private sealed record AggregatedItem(uint ItemId, AggregatedVariant Nq, AggregatedVariant Hq);
 
