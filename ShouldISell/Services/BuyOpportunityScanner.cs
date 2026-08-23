@@ -46,7 +46,7 @@ public sealed class BuyOpportunityScanner : IDisposable
 
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(30);
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "1.1.2"));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "1.1.3"));
     }
 
     public bool IsScanning { get; private set; }
@@ -1034,6 +1034,7 @@ public sealed class BuyOpportunityScanner : IDisposable
         public List<MarketSale> Sales { get; } = new();
     }
 }
+
 
 
 

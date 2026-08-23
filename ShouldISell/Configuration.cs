@@ -5,7 +5,7 @@ namespace ShouldISell;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 5;
+    public int Version { get; set; } = 6;
 
     /// <summary>
     /// The only subjective sell-rating input: the expected after-tax gil value of one recommended
@@ -26,6 +26,7 @@ public sealed class Configuration : IPluginConfiguration
     public int BuyMaximumInvestmentPercentPerItem { get; set; } = 25;
     public int BuyDeepCandidateLimit { get; set; } = 120;
     public int BuyPortfolioMaxPositions { get; set; } = 8;
+    public int BuyNativeDeepScanLimit { get; set; } = 20;
     public bool BuyIncludeEquipment { get; set; } = false;
     public bool BuyUseCategoryFilter { get; set; } = false;
     public List<uint> BuyIncludedCategoryIds { get; set; } = new();
@@ -82,6 +83,14 @@ public sealed class Configuration : IPluginConfiguration
         {
             BuyPortfolioMaxPositions = Math.Clamp(BuyPortfolioMaxPositions <= 0 ? 8 : BuyPortfolioMaxPositions, 1, 20);
             Version = 5;
+            changed = true;
+        }
+
+        // v1.1.3 adds the user-selected native deep-scan size for Should I Buy?.
+        if (Version < 6)
+        {
+            BuyNativeDeepScanLimit = Math.Clamp(BuyNativeDeepScanLimit <= 0 ? 20 : BuyNativeDeepScanLimit, 1, 100);
+            Version = 6;
             changed = true;
         }
 
