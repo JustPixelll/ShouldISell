@@ -51,6 +51,8 @@ public sealed partial class SuiteWindow : Window, IDisposable
 
     public override void Draw()
     {
+        RefreshSelectedBuyOpportunityFromModel();
+
         ImGui.TextUnformatted("Should I?");
         ImGui.SameLine();
         ImGui.TextDisabled("One market brain: sell better, buy better, learn from your own trades.");
@@ -87,9 +89,7 @@ public sealed partial class SuiteWindow : Window, IDisposable
         var worldId = CurrentBuyWorldId;
         if (worldId == 0)
             return Array.Empty<BuyOpportunity>();
-        return plugin.BuyScanner.GetOpportunities()
-            .Where(x => x.WorldId == worldId)
-            .ToList();
+        return GetModelAdjustedBuyOpportunities(worldId);
     }
 
     private static void ItemNameContextMenu(string popupId, string itemName)
