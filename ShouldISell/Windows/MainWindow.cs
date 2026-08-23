@@ -9,6 +9,14 @@ namespace ShouldISell.Windows;
 
 public sealed partial class MainWindow : Window, IDisposable
 {
+    private enum OwnedLocationFilter
+    {
+        AllLocations,
+        PlayerInventory,
+        AllRetainers,
+        SpecificRetainer,
+    }
+
     private readonly Plugin plugin;
     private string search = string.Empty;
     private string listingSearch = string.Empty;
@@ -21,6 +29,8 @@ public sealed partial class MainWindow : Window, IDisposable
     private int ownedStarsMax = 5;
     private long ownedNetMin;
     private long ownedNetMax = 999_999_999_999;
+    private OwnedLocationFilter ownedLocationFilter = OwnedLocationFilter.AllLocations;
+    private ulong ownedRetainerFilterId;
 
     // Current-listing filters. Payout bounds apply to the after-tax payout of the currently listed stack.
     private int listingRatingMin;
@@ -134,13 +144,18 @@ public sealed partial class MainWindow : Window, IDisposable
     {
         ImGui.SetNextItemWidth(-1);
         ImGui.InputTextWithHint("##item-search", "Search item name...", ref search, 128);
-        DrawOwnedFilters();
+
+        var ratedItems = plugin.Coordinator.GetRatedOwnedItems().ToList();
+        DrawOwnedFilters(ratedItems);
 
         var listedVariants = plugin.Coordinator.GetKnownOwnListedVariants();
-        var allItems = plugin.Coordinator.GetRatedOwnedItems()
+        var allItems = ratedItems
             .Where(x => string.IsNullOrWhiteSpace(search) || x.Item.Name.Contains(search, StringComparison.CurrentCultureIgnoreCase))
             .ToList();
-        var items = allItems.Where(PassesOwnedFilters).ToList();
+        var items = allItems
+            .Where(PassesOwnedFilters)
+            .Where(PassesOwnedLocationFilter)
+            .ToList();
 
         ImGui.TextDisabled($"Showing {items.Count:N0} of {allItems.Count:N0} matching item/HQ variants. Hover a rating for the score breakdown; click anywhere on a row for full details.");
         if (listedVariants.Count > 0)
@@ -190,7 +205,7 @@ public sealed partial class MainWindow : Window, IDisposable
                 else
                     ImGui.TextUnformatted(row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty));
                 ImGui.TableSetColumnIndex(2);
-                ImGui.TextUnformatted(row.Quantity.ToString("N0"));
+                ImGui.TextUnformatted(VisibleOwnedQuantity(row).ToString("N0"));
                 ImGui.TableSetColumnIndex(3);
                 DrawSuggestedPriceCell(row.Rating);
                 ImGui.TableSetColumnIndex(4);
@@ -216,10 +231,13 @@ public sealed partial class MainWindow : Window, IDisposable
             DrawSelectedDetails(ownedSelection);
     }
 
-    private void DrawOwnedFilters()
+    private void DrawOwnedFilters(IReadOnlyList<RatedOwnedItem> ratedItems)
     {
         if (!ImGui.CollapsingHeader("Filters##owned", ImGuiTreeNodeFlags.DefaultOpen))
             return;
+
+        DrawOwnedLocationFilter(ratedItems);
+        ImGui.Spacing();
 
         var width = 165 * ImGuiHelpers.GlobalScale;
         ImGui.SetNextItemWidth(width);
@@ -254,12 +272,106 @@ public sealed partial class MainWindow : Window, IDisposable
             ownedStarsMax = 5;
             ownedNetMin = 0;
             ownedNetMax = 999_999_999_999;
+            ownedLocationFilter = OwnedLocationFilter.AllLocations;
+            ownedRetainerFilterId = 0;
         }
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Reset rating, star and expected-net filters.");
+            ImGui.SetTooltip("Reset location, rating, star and expected-net filters.");
         ImGui.TextDisabled("Est. net = expected after-tax payout of ONE recommended listing: suggested stack × net suggested unit price.");
         ImGui.Spacing();
     }
+
+    private void DrawOwnedLocationFilter(IReadOnlyList<RatedOwnedItem> ratedItems)
+    {
+        var retainers = ratedItems
+            .SelectMany(x => x.Ownership)
+            .Where(x => x.OwnerKind == InventoryOwnerKind.Retainer && x.OwnerId != 0)
+            .GroupBy(x => x.OwnerId)
+            .Select(g => new
+            {
+                Id = g.Key,
+                Name = g.Select(x => x.OwnerName).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? "Unnamed retainer",
+            })
+            .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        if (ownedLocationFilter == OwnedLocationFilter.SpecificRetainer &&
+            retainers.All(x => x.Id != ownedRetainerFilterId))
+        {
+            ownedLocationFilter = OwnedLocationFilter.AllRetainers;
+            ownedRetainerFilterId = 0;
+        }
+
+        var preview = ownedLocationFilter switch
+        {
+            OwnedLocationFilter.PlayerInventory => "Location: Player inventory",
+            OwnedLocationFilter.AllRetainers => "Location: All retainers",
+            OwnedLocationFilter.SpecificRetainer =>
+                $"Location: {retainers.FirstOrDefault(x => x.Id == ownedRetainerFilterId)?.Name ?? "Retainer"}",
+            _ => "Location: All",
+        };
+
+        ImGui.SetNextItemWidth(240 * ImGuiHelpers.GlobalScale);
+        if (ImGui.BeginCombo("##owned-location-filter", preview))
+        {
+            if (ImGui.Selectable("All locations", ownedLocationFilter == OwnedLocationFilter.AllLocations))
+            {
+                ownedLocationFilter = OwnedLocationFilter.AllLocations;
+                ownedRetainerFilterId = 0;
+            }
+            if (ImGui.Selectable("Player inventory", ownedLocationFilter == OwnedLocationFilter.PlayerInventory))
+            {
+                ownedLocationFilter = OwnedLocationFilter.PlayerInventory;
+                ownedRetainerFilterId = 0;
+            }
+            if (ImGui.Selectable("All retainers", ownedLocationFilter == OwnedLocationFilter.AllRetainers))
+            {
+                ownedLocationFilter = OwnedLocationFilter.AllRetainers;
+                ownedRetainerFilterId = 0;
+            }
+
+            if (retainers.Count > 0)
+            {
+                ImGui.Separator();
+                foreach (var retainer in retainers)
+                {
+                    if (!ImGui.Selectable($"Retainer: {retainer.Name}##owned-retainer-{retainer.Id}",
+                            ownedLocationFilter == OwnedLocationFilter.SpecificRetainer && ownedRetainerFilterId == retainer.Id))
+                        continue;
+                    ownedLocationFilter = OwnedLocationFilter.SpecificRetainer;
+                    ownedRetainerFilterId = retainer.Id;
+                }
+            }
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Show items present in all known locations, your player-owned inventory/saddlebags, all retainers, or one specific cached retainer. When scoped, Qty shows the amount in that selected location; sell guidance still models your full known position.");
+    }
+
+    private bool PassesOwnedLocationFilter(RatedOwnedItem row)
+        => ownedLocationFilter switch
+        {
+            OwnedLocationFilter.PlayerInventory => row.Ownership.Any(x => x.OwnerKind == InventoryOwnerKind.Player),
+            OwnedLocationFilter.AllRetainers => row.Ownership.Any(x => x.OwnerKind == InventoryOwnerKind.Retainer),
+            OwnedLocationFilter.SpecificRetainer => row.Ownership.Any(x =>
+                x.OwnerKind == InventoryOwnerKind.Retainer && x.OwnerId == ownedRetainerFilterId),
+            _ => true,
+        };
+
+    private int VisibleOwnedQuantity(RatedOwnedItem row)
+        => ownedLocationFilter switch
+        {
+            OwnedLocationFilter.PlayerInventory => row.Ownership
+                .Where(x => x.OwnerKind == InventoryOwnerKind.Player)
+                .Sum(x => x.Quantity),
+            OwnedLocationFilter.AllRetainers => row.Ownership
+                .Where(x => x.OwnerKind == InventoryOwnerKind.Retainer)
+                .Sum(x => x.Quantity),
+            OwnedLocationFilter.SpecificRetainer => row.Ownership
+                .Where(x => x.OwnerKind == InventoryOwnerKind.Retainer && x.OwnerId == ownedRetainerFilterId)
+                .Sum(x => x.Quantity),
+            _ => row.Quantity,
+        };
 
     private bool PassesOwnedFilters(RatedOwnedItem row)
     {
@@ -278,7 +390,7 @@ public sealed partial class MainWindow : Window, IDisposable
     {
         ("Rating", "Stars are the broad sell-opportunity band. The colored 0–100 number is stricter: it uses the non-contrast opportunity score, so 100 is reserved for a near-perfect fit rather than every 5★ item."),
         ("Item", "The item/HQ variant represented by this row."),
-        ("Qty", "Total quantity known across loaded/cached player, saddlebag, retainer and market-listing snapshots."),
+        ("Qty", "Quantity in the active location filter. With All locations selected, this is the total known quantity across player, saddlebag, retainer and market-listing snapshots. Sell guidance still models the full known position."),
         ("Suggested", "Recommended gross market-board price per unit. It combines sold-price history, current listing depth, demand/supply, your quantity, and supported stack-size premiums or discounts. Right-click a value to copy the raw gil number."),
         ("Stack", "Recommended quantity per listing. It learns historical buyer stack-size preferences and convenience premiums, then balances those against liquidity and the manual cost of splitting into too many listings."),
         ("Est. net", "Expected after-tax payout of one recommended listing: suggested stack size × net suggested unit price. This intentionally does not pretend your whole stockpile sells in one transaction."),
@@ -1058,7 +1170,7 @@ public sealed partial class MainWindow : Window, IDisposable
                selected.Listing.MarketSlot == other.Listing.MarketSlot;
     }
 
-    private static List<RatedOwnedItem> SortOwnedItems(List<RatedOwnedItem> rows, ImGuiTableSortSpecsPtr sortSpecs)
+    private List<RatedOwnedItem> SortOwnedItems(List<RatedOwnedItem> rows, ImGuiTableSortSpecsPtr sortSpecs)
     {
         if (sortSpecs.IsNull || sortSpecs.SpecsCount == 0)
             return rows;
@@ -1069,7 +1181,7 @@ public sealed partial class MainWindow : Window, IDisposable
         {
             OwnedItemColumn.Rating => OrderRows(rows, x => x.Rating?.OpportunityScore ?? double.MinValue, descending),
             OwnedItemColumn.Item => OrderRows(rows, x => x.Item.Name, descending, StringComparer.CurrentCultureIgnoreCase),
-            OwnedItemColumn.Quantity => OrderRows(rows, x => x.Quantity, descending),
+            OwnedItemColumn.Quantity => OrderRows(rows, VisibleOwnedQuantity, descending),
             OwnedItemColumn.Suggested => OrderRows(rows, x => x.Rating?.SuggestedPrice ?? 0u, descending),
             OwnedItemColumn.Stack => OrderRows(rows, x => x.Rating?.StackRecommendation?.RecommendedStackSize ?? 0, descending),
             OwnedItemColumn.EstimatedTotal => OrderRows(rows, x => EstimatedRecommendedListingValue(x) ?? -1.0, descending),
@@ -1268,3 +1380,13 @@ public sealed partial class MainWindow : Window, IDisposable
         return $"{age.TotalDays:0.#}d";
     }
 }
+
+
+
+
+
+
+
+
+
+

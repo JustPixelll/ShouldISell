@@ -183,11 +183,18 @@ public sealed record SellRating(
     ScoreBreakdown Breakdown,
     IReadOnlyList<string> Notes);
 
+public sealed record OwnedLocationSummary(
+    InventoryOwnerKind OwnerKind,
+    ulong OwnerId,
+    string OwnerName,
+    int Quantity);
+
 public sealed record RatedOwnedItem(
     ItemInfo Item,
     bool IsHq,
     int Quantity,
     IReadOnlyList<string> Locations,
+    IReadOnlyList<OwnedLocationSummary> Ownership,
     SellRating? Rating,
     DateTimeOffset? InventoryObservedAtUtc);
 
@@ -212,3 +219,4 @@ public sealed record RefreshQueueEntry(
     string ItemName,
     DateTimeOffset? LastUploadUtc,
     int Attempts = 0);
+

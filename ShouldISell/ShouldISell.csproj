@@ -1,6 +1,6 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.3.0</Version>
+    <Version>1.1.4.0</Version>
     <Author>JustPixelll</Author>
     <Name>Should I?</Name>
     <Punchline>Sell smarter. Buy smarter. Learn your trading style.</Punchline>
@@ -16,4 +16,5 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 </Project>
+
 
