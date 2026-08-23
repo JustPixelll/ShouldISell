@@ -1,6 +1,7 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using ShouldISell.Services;
 
 namespace ShouldISell.Windows;
 
@@ -21,6 +22,7 @@ public sealed partial class SuiteWindow : Window, IDisposable
     private readonly MainWindow sellWindow;
     private ShouldIModule? selectOnNextDraw;
     private BuyOpportunity? selectedBuyOpportunity;
+    private BuyPortfolioPlan? buyPortfolioPlan;
     private string buySearch = string.Empty;
     private string buyCategorySearch = string.Empty;
 
