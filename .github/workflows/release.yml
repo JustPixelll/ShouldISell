@@ -1,4 +1,4 @@
-name: Release Should I Sell
+name: Release Should I?
 
 on:
   release:
