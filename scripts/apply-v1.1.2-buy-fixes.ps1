@@ -78,10 +78,11 @@ Replace-Exact $buy @'
         var c = plugin.Configuration;
 '@
 
+# This exact item-cell line occurs in both Buy tables. Give both the same right-click copy behavior.
 Replace-Exact $buy 'ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted(row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty));' @'
         ImGui.TableSetColumnIndex(1);
         ImGui.TextUnformatted(row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty));
-        ItemNameContextMenu($"##copy-portfolio-name-{row.Item.ItemId}-{row.IsHq}-{row.Kind}", row.Item.Name);
+        ItemNameContextMenu($"##copy-buy-name-{row.Item.ItemId}-{row.IsHq}-{row.Kind}-{row.AcquisitionCost}", row.Item.Name);
 '@
 
 Replace-Exact $buy @'
@@ -90,12 +91,6 @@ Replace-Exact $buy @'
 '@ @'
         var filtered = GetCurrentWorldBuyOpportunities()
             .Where(x => string.IsNullOrWhiteSpace(buySearch) || x.Item.Name.Contains(buySearch, StringComparison.CurrentCultureIgnoreCase));
-'@
-
-Replace-Exact $buy 'ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted(row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty));' @'
-        ImGui.TableSetColumnIndex(1);
-        ImGui.TextUnformatted(row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty));
-        ItemNameContextMenu($"##copy-buy-name-{row.Item.ItemId}-{row.IsHq}-{row.Kind}-{row.AcquisitionCost}", row.Item.Name);
 '@
 
 Replace-Exact $buy @'
@@ -154,39 +149,5 @@ Replace-Exact $scanner @'
             lock (resultGate)
                 opportunities = final;
 '@
-
-Replace-Exact $scanner @'
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: token);
-            foreach (var item in ExtractItemObjects(doc.RootElement))
-'@ @'
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: token);
-            if (doc.RootElement.TryGetProperty("worldID", out var returnedWorldElement) &&
-                returnedWorldElement.TryGetUInt32(out var returnedWorldId) && returnedWorldId != 0 && returnedWorldId != worldId)
-                throw new InvalidDataException($"Universalis current-data response world {returnedWorldId} did not match requested world {worldId}.");
-            foreach (var item in ExtractItemObjects(doc.RootElement))
-'@
-
-# The same parse pattern occurs in the history request after the current-data block. Patch the
-# remaining first occurrence after the history request marker only.
-$text = Get-Content $scanner -Raw
-$historyMarker = 'using (var historyResponse = await http.GetAsync('
-$markerIndex = $text.IndexOf($historyMarker)
-if ($markerIndex -lt 0) { throw 'History response marker not found.' }
-$tail = $text.Substring($markerIndex)
-$oldHistory = @'
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: token);
-            foreach (var item in ExtractItemObjects(doc.RootElement))
-'@
-$newHistory = @'
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: token);
-            if (doc.RootElement.TryGetProperty("worldID", out var returnedWorldElement) &&
-                returnedWorldElement.TryGetUInt32(out var returnedWorldId) && returnedWorldId != 0 && returnedWorldId != worldId)
-                throw new InvalidDataException($"Universalis history response world {returnedWorldId} did not match requested world {worldId}.");
-            foreach (var item in ExtractItemObjects(doc.RootElement))
-'@
-if (-not $tail.Contains($oldHistory)) { throw 'History parse patch target not found.' }
-$tail = $tail.Replace($oldHistory, $newHistory)
-$text = $text.Substring(0, $markerIndex) + $tail
-Set-Content $scanner $text -Encoding UTF8
 
 Write-Host 'v1.1.2 Buy patches applied successfully.'
