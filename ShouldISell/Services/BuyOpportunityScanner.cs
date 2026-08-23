@@ -46,7 +46,7 @@ public sealed class BuyOpportunityScanner : IDisposable
 
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(30);
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "1.1.6"));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "1.1.7"));
     }
 
     public bool IsScanning { get; private set; }
@@ -135,12 +135,33 @@ public sealed class BuyOpportunityScanner : IDisposable
                 .Select(x => x.First())
                 .ToList();
 
-            var selectedIds = selectedVariants
+            var candidateGroups = selectedVariants
                 .GroupBy(x => x.Entry.Item.ItemId)
-                .OrderByDescending(g => g.Max(x => x.RoughScore))
-                .Take(settings.DeepCandidateLimit)
-                .Select(g => g.Key)
-                .ToHashSet();
+                .ToList();
+            var selectedIds = new HashSet<uint>();
+
+            // v1.1.7: the old broad shortlist was dominated by raw ROI. A 1g -> 20,000g anomaly
+            // could therefore outrank a 100,000g -> 1,000,000g opportunity by orders of magnitude
+            // before either item ever received 90-day history. Reserve roughly one third of the
+            // expensive detailed lookups for the largest plausible absolute-gil gaps, then fill
+            // the rest by the balanced rough score. Final recommendations still use only detailed
+            // current-world listings/history and the normal Buy safety gates.
+            var highGilSlots = Math.Max(1, settings.DeepCandidateLimit / 3);
+            foreach (var group in candidateGroups
+                         .Where(g => g.Max(x => x.EstimatedUnitProfit) > 0)
+                         .OrderByDescending(g => g.Max(x => x.EstimatedUnitProfit))
+                         .ThenByDescending(g => g.Max(x => x.RoughScore))
+                         .Take(highGilSlots))
+                selectedIds.Add(group.Key);
+
+            foreach (var group in candidateGroups
+                         .OrderByDescending(g => g.Max(x => x.RoughScore))
+                         .ThenByDescending(g => g.Max(x => x.EstimatedUnitProfit)))
+            {
+                if (selectedIds.Count >= settings.DeepCandidateLimit)
+                    break;
+                selectedIds.Add(group.Key);
+            }
 
             // Guaranteed vendor-floor opportunities are cheap and deterministic enough to deserve
             // a deep look even if their normal market-sale statistics are weak.
@@ -615,20 +636,33 @@ public sealed class BuyOpportunityScanner : IDisposable
         ScanSettings settings)
     {
         var item = entry.Item;
-        if (variant.MinListing <= 0 && variant.AverageSalePrice <= 0)
+        var discovery = GetDiscoveryReference(variant);
+        if (variant.MinListing <= 0 && discovery.Price <= 0)
             return;
 
-        var netAverage = variant.AverageSalePrice * (1.0 - ScoreCalculator.MarketSellerTaxRate);
-        var marketMargin = variant.MinListing > 0
-            ? (netAverage - variant.MinListing) / variant.MinListing
+        // Aggregated sale price/velocity covers only a very short recent window. Rare expensive
+        // items can have no world sale in that window even though the world has useful 90-day
+        // history. DC/region values and listing medians may therefore rescue an item for the deep
+        // shortlist, but they NEVER become the final exit evidence.
+        var conservativeUnitCost = variant.MinListing * (1.0 + ConservativeBuyerTaxRate);
+        var netDiscoveryReference = discovery.Price * (1.0 - ScoreCalculator.MarketSellerTaxRate);
+        var marketMargin = conservativeUnitCost > 0
+            ? (netDiscoveryReference - conservativeUnitCost) / conservativeUnitCost
             : 0;
+        var estimatedUnitProfit = Math.Max(0, netDiscoveryReference - conservativeUnitCost);
+        var perItemBudget = Math.Min(settings.BudgetGil,
+            Math.Max(1L, settings.BudgetGil * Math.Clamp(settings.MaxInvestmentPercentPerItem, 1, 100) / 100L));
+        var affordableSingleUnit = conservativeUnitCost > 0 && conservativeUnitCost <= perItemBudget;
         var vendorContested = HasRenewableVendorSupply(item, isHq);
         var marketSignal = settings.EnableMarketToMarket && !vendorContested &&
-                           variant.MinListing > 0 && variant.DailyVelocity > 0.001 &&
+                           variant.MinListing > 0 && discovery.Price > 0 && affordableSingleUnit &&
                            marketMargin >= settings.MinimumRoi * 0.60;
 
+        // Vendor -> Market stays deliberately world-local. Broader DC/region prices should never
+        // manufacture a convenience-arbitrage recommendation on a world where nobody is buying it.
+        var netWorldAverage = variant.AverageSalePrice * (1.0 - ScoreCalculator.MarketSellerTaxRate);
         var vendorMarketMargin = !isHq && item.VendorGilShopPrice is > 0
-            ? (netAverage - item.VendorGilShopPrice.Value) / item.VendorGilShopPrice.Value
+            ? (netWorldAverage - item.VendorGilShopPrice.Value) / item.VendorGilShopPrice.Value
             : double.NegativeInfinity;
         var vendorMarketSignal = settings.EnableVendorToMarket && !isHq && item.VendorGilShopPrice is > 0 &&
                                  variant.DailyVelocity > 0.001 && vendorMarketMargin >= settings.MinimumRoi * 0.60;
@@ -639,15 +673,79 @@ public sealed class BuyOpportunityScanner : IDisposable
         if (!marketSignal && !vendorMarketSignal && !vendorFloorSignal)
             return;
 
-        var scoredMarketMargin = marketSignal ? marketMargin : 0;
-        var scoredVendorMarketMargin = vendorMarketSignal && double.IsFinite(vendorMarketMargin) ? vendorMarketMargin : 0;
-        var bestMargin = Math.Max(0, Math.Max(scoredMarketMargin, scoredVendorMarketMargin));
-        var velocitySignal = Math.Log10(1 + Math.Max(0, variant.DailyVelocity));
-        var roughScore = 100 * bestMargin + 12 * velocitySignal;
+        // Keep discovery ranking on the same conceptual scale as the final Buy score: ROI is
+        // logarithmic/capped rather than linear, while absolute gil has real weight. This prevents
+        // penny anomalies from monopolising every detailed-history slot.
+        var localVelocity = Clamp01(Math.Log10(1 + Math.Max(0, variant.DailyVelocity)) / Math.Log10(31));
+        var broaderVelocity = variant.DailyVelocity > 0
+            ? variant.DailyVelocity
+            : variant.DcDailyVelocity > 0
+                ? variant.DcDailyVelocity * 0.50
+                : variant.RegionDailyVelocity * 0.25;
+        var discoveryVelocity = Clamp01(Math.Log10(1 + Math.Max(0, broaderVelocity)) / Math.Log10(31));
+
+        var marketRough = 0.0;
+        if (marketSignal)
+        {
+            var roiScore = RoughRoiScore(marketMargin);
+            var profitScore = ScoreProfit(estimatedUnitProfit, settings.MinimumProfitGil);
+            marketRough = 100 * (0.45 * roiScore + 0.40 * profitScore + 0.15 * discoveryVelocity) * discovery.Confidence;
+        }
+
+        var vendorRough = 0.0;
+        if (vendorMarketSignal)
+        {
+            var vendorUnitProfit = Math.Max(0, netWorldAverage - item.VendorGilShopPrice!.Value);
+            vendorRough = 100 * (
+                0.55 * RoughRoiScore(vendorMarketMargin) +
+                0.30 * ScoreProfit(vendorUnitProfit, settings.MinimumProfitGil) +
+                0.15 * localVelocity);
+        }
+
+        var roughScore = Math.Max(marketRough, vendorRough);
         if (vendorFloorSignal)
             roughScore += 250 + 100 * Math.Max(0, (item.VendorBuybackPrice - variant.MinListing) / (double)Math.Max(1, variant.MinListing));
 
-        output.Add(new RoughCandidate(entry, isHq, variant, roughScore, vendorFloorSignal));
+        output.Add(new RoughCandidate(
+            entry,
+            isHq,
+            variant,
+            roughScore,
+            vendorFloorSignal,
+            marketSignal ? estimatedUnitProfit : 0,
+            discovery.Price,
+            discovery.Label,
+            discovery.IsWorldRecentSale));
+    }
+
+    private static double RoughRoiScore(double margin)
+        => Clamp01(Math.Log10(1 + Math.Max(0, margin) * 20) / Math.Log10(21));
+
+    private static DiscoveryReference GetDiscoveryReference(AggregatedVariant variant)
+    {
+        var candidates = new List<DiscoveryReference>(6);
+
+        // Wider scopes are intentionally discounted because they are only a reason to spend a
+        // detailed current-world lookup, not proof that the local exit exists.
+        if (variant.AverageSalePrice > 0)
+            candidates.Add(new DiscoveryReference(variant.AverageSalePrice, "world 4-day average sale", 1.00, true));
+        if (variant.DcAverageSalePrice > 0)
+            candidates.Add(new DiscoveryReference(variant.DcAverageSalePrice * 0.95, "DC 4-day average sale (discovery-only)", 0.90, false));
+        if (variant.RegionAverageSalePrice > 0)
+            candidates.Add(new DiscoveryReference(variant.RegionAverageSalePrice * 0.90, "region 4-day average sale (discovery-only)", 0.82, false));
+        if (variant.MedianListing > 0)
+            candidates.Add(new DiscoveryReference(variant.MedianListing * 0.90, "world median listing (discovery-only)", 0.72, false));
+        if (variant.DcMedianListing > 0)
+            candidates.Add(new DiscoveryReference(variant.DcMedianListing * 0.82, "DC median listing (discovery-only)", 0.66, false));
+        if (variant.RegionMedianListing > 0)
+            candidates.Add(new DiscoveryReference(variant.RegionMedianListing * 0.75, "region median listing (discovery-only)", 0.58, false));
+
+        return candidates.Count == 0
+            ? new DiscoveryReference(0, "no aggregate reference", 0, false)
+            : candidates
+                .OrderByDescending(x => x.Price)
+                .ThenByDescending(x => x.Confidence)
+                .First();
     }
 
     private async Task<IReadOnlyList<AggregatedItem>> FetchAggregatedAsync(uint worldId, IReadOnlyList<uint> ids, CancellationToken token)
@@ -805,8 +903,12 @@ public sealed class BuyOpportunityScanner : IDisposable
             if (next > lastBought)
                 notes.Add($"After the recommended purchase, the next visible ask rises from {lastBought:N0}g to {next:N0}g/unit.");
         }
-        if (candidate.Variant.AverageSalePrice > 0)
-            notes.Add($"Universalis broad-pass anchor: ~{candidate.Variant.AverageSalePrice:N0}g average sale price and {candidate.Variant.DailyVelocity:0.##} unit(s)/day over the recent aggregate window.");
+        if (candidate.DiscoveryReferencePrice > 0)
+        {
+            notes.Add($"Universalis broad-pass anchor: {candidate.DiscoveryReferenceLabel} at ~{candidate.DiscoveryReferencePrice:N0}g; local recent velocity was {candidate.Variant.DailyVelocity:0.##} unit(s)/day.");
+            if (!candidate.DiscoveryReferenceIsWorldRecentSale)
+                notes.Add("That broader/listing-based value was discovery-only. The recommendation itself still had to pass current-world listings, 90-day current-world sales, ROI, profit and holding-time checks.");
+        }
 
         return notes;
     }
@@ -929,6 +1031,12 @@ public sealed class BuyOpportunityScanner : IDisposable
             MedianListing = GetNestedDouble(variant, "medianListing", "world", "price"),
             AverageSalePrice = GetNestedDouble(variant, "averageSalePrice", "world", "price"),
             DailyVelocity = GetNestedDouble(variant, "dailySaleVelocity", "world", "quantity"),
+            DcMedianListing = GetNestedDouble(variant, "medianListing", "dc", "price"),
+            RegionMedianListing = GetNestedDouble(variant, "medianListing", "region", "price"),
+            DcAverageSalePrice = GetNestedDouble(variant, "averageSalePrice", "dc", "price"),
+            RegionAverageSalePrice = GetNestedDouble(variant, "averageSalePrice", "region", "price"),
+            DcDailyVelocity = GetNestedDouble(variant, "dailySaleVelocity", "dc", "quantity"),
+            RegionDailyVelocity = GetNestedDouble(variant, "dailySaleVelocity", "region", "quantity"),
         };
     }
 
@@ -1026,7 +1134,17 @@ public sealed class BuyOpportunityScanner : IDisposable
         bool IsHq,
         AggregatedVariant Variant,
         double RoughScore,
-        bool GuaranteedVendorSignal);
+        bool GuaranteedVendorSignal,
+        double EstimatedUnitProfit,
+        double DiscoveryReferencePrice,
+        string DiscoveryReferenceLabel,
+        bool DiscoveryReferenceIsWorldRecentSale);
+
+    private sealed record DiscoveryReference(
+        double Price,
+        string Label,
+        double Confidence,
+        bool IsWorldRecentSale);
 
     private sealed record AggregatedItem(uint ItemId, AggregatedVariant Nq, AggregatedVariant Hq);
 
@@ -1036,6 +1154,12 @@ public sealed class BuyOpportunityScanner : IDisposable
         public double MedianListing { get; init; }
         public double AverageSalePrice { get; init; }
         public double DailyVelocity { get; init; }
+        public double DcMedianListing { get; init; }
+        public double RegionMedianListing { get; init; }
+        public double DcAverageSalePrice { get; init; }
+        public double RegionAverageSalePrice { get; init; }
+        public double DcDailyVelocity { get; init; }
+        public double RegionDailyVelocity { get; init; }
     }
 
     private sealed record BuyListingWork(MarketListing Listing, uint Tax, long TotalCost);

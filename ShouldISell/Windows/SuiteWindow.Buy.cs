@@ -104,6 +104,11 @@ public sealed partial class SuiteWindow
                 c.Save();
             }
             Tooltip("Maximum share of your total scanner budget that may be tied up in one item/HQ variant. This prevents one trade from consuming the whole bankroll.");
+            var effectivePerItemCap = Math.Min(
+                (long)c.BuyBudgetGil,
+                Math.Max(1L, (long)c.BuyBudgetGil * Math.Clamp(c.BuyMaximumInvestmentPercentPerItem, 1, 100) / 100L));
+            ImGui.TextDisabled($"Effective per-item acquisition cap: {effectivePerItemCap:N0}g.");
+            Tooltip("This is a hard acquisition-package limit. Example: a 500,000g budget at 25% permits at most about 125,000g in one item/HQ variant, so more expensive flips are intentionally excluded.");
 
             var maxPositions = c.BuyPortfolioMaxPositions;
             ImGui.SetNextItemWidth(150 * ImGuiHelpers.GlobalScale);
@@ -122,7 +127,7 @@ public sealed partial class SuiteWindow
                 c.BuyDeepCandidateLimit = Math.Clamp(deepLimit, 20, 500);
                 c.Save();
             }
-            Tooltip("After discovery, only this many strongest item IDs receive detailed Universalis current listings plus 90-day history. This is still Universalis data; the separate LIVE VERIFY action is the one-item native FFXIV check.");
+            Tooltip("After discovery, only this many item IDs receive detailed Universalis current listings plus 90-day history. The shortlist is diversified: roughly one third of its slots protect large plausible absolute-gil gaps from being crowded out by tiny extreme-ROI items. DC/region aggregate values may rescue rare items for this detailed look, but final recommendations still require current-world detailed evidence. LIVE VERIFY remains the native FFXIV check.");
 
             ImGui.Spacing();
             var marketFlip = c.BuyEnableMarketToMarket;
@@ -158,6 +163,8 @@ public sealed partial class SuiteWindow
                 c.Save();
             }
             Tooltip("Include equippable items in discovery. Gear markets can be slower and more fragmented than materials, so this is off by default.");
+            if (!c.BuyIncludeEquipment)
+                ImGui.TextDisabled("High-ticket equippable gear/glamour opportunities are excluded while this is off.");
 
             var categoryFilter = c.BuyUseCategoryFilter;
             if (ImGui.Checkbox("Filter by FFXIV item UI categories", ref categoryFilter))
