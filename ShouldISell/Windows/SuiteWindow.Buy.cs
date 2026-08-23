@@ -357,6 +357,8 @@ public sealed partial class SuiteWindow
             ImGui.EndTable();
         }
 
+        DrawBuyLiveVerification(opportunity);
+
         if (opportunity.AcquisitionLots.Count > 0)
         {
             ImGui.TextUnformatted("Buy these Market Board listings:");
