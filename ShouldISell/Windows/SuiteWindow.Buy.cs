@@ -131,7 +131,7 @@ public sealed partial class SuiteWindow
                 c.BuyEnableMarketToMarket = marketFlip;
                 c.Save();
             }
-            Tooltip("Buy one or more Market Board listings and resell the acquired units on the Market Board using the shared Should I Sell? exit model.");
+            Tooltip("Buy one or more Market Board listings and resell them using the shared Should I Sell? exit model. NQ items sold by a normal gil vendor are deliberately excluded: their supply is renewable, so buying out cheap player listings cannot be assumed to create scarcity.");
 
             ImGui.SameLine();
             var vendorMarket = c.BuyEnableVendorToMarket;
@@ -140,7 +140,7 @@ public sealed partial class SuiteWindow
                 c.BuyEnableVendorToMarket = vendorMarket;
                 c.Save();
             }
-            Tooltip("Buy from a verified normal gil NPC vendor and resell on the Market Board. Quantity is capped by recent demand rather than blindly recommending a full stack.");
+            Tooltip("Buy from a verified normal gil NPC vendor and resell on the Market Board. Because this supply is renewable, the model targets only one working listing (maximum 99 units) and never relies on buying out competing player listings.");
 
             ImGui.SameLine();
             var marketVendor = c.BuyEnableMarketToVendor;
@@ -629,6 +629,8 @@ public sealed partial class SuiteWindow
         return $"{age.TotalDays:0.#}d";
     }
 }
+
+
 
 
 
