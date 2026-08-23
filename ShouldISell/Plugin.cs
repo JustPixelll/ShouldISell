@@ -11,6 +11,7 @@ namespace ShouldISell;
 public sealed class Plugin : IDalamudPlugin
 {
     private const string CommandName = "/sellcheck";
+    private const string BuyCommandName = "/buycheck";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -39,8 +40,15 @@ public sealed class Plugin : IDalamudPlugin
     public ExperimentalRefreshEngine RefreshEngine { get; }
     public RetainerListingAttentionOverlay ListingAttentionOverlay { get; }
 
+    public BuyUniversalisClient BuyUniversalis { get; }
+    public TradingLedgerStore TradingLedger { get; }
+    public BuyOpportunityEngine BuyEngine { get; }
+    public MarketPurchaseObserver PurchaseObserver { get; }
+    public TraderProfileService TraderProfiles { get; }
+
     public readonly WindowSystem WindowSystem = new("ShouldISell");
     private readonly MainWindow mainWindow;
+    private readonly BuyWindow buyWindow;
 
     public Plugin()
     {
@@ -59,12 +67,24 @@ public sealed class Plugin : IDalamudPlugin
         RefreshEngine = new ExperimentalRefreshEngine(Configuration, Framework, PlayerState, Catalog, Inventory, Store, MarketObserver, SellScanContext, Log);
         ListingAttentionOverlay = new RetainerListingAttentionOverlay(GameGui, PlayerState, Coordinator, Log);
 
+        BuyUniversalis = new BuyUniversalisClient(Log);
+        TradingLedger = new TradingLedgerStore(PluginInterface, Log);
+        BuyEngine = new BuyOpportunityEngine(Configuration, PlayerState, Store, Catalog, Scores, BuyUniversalis, Log);
+        PurchaseObserver = new MarketPurchaseObserver(MarketBoard, PlayerState, TradingLedger, BuyEngine, Log);
+        TraderProfiles = new TraderProfileService(PlayerState, Store, TradingLedger, Catalog);
+
         mainWindow = new MainWindow(this);
+        buyWindow = new BuyWindow(this);
         WindowSystem.AddWindow(mainWindow);
+        WindowSystem.AddWindow(buyWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
             HelpMessage = "Open Should I Sell?. /sellcheck scan, /sellcheck fetch, /sellcheck refresh, /sellcheck listings, /sellcheck livescan, /sellcheck audit, /sellcheck stop",
+        });
+        CommandManager.AddHandler(BuyCommandName, new CommandInfo(OnBuyCommand)
+        {
+            HelpMessage = "Open Should I Buy?. /buycheck scan starts a full opportunity scan; /buycheck stop cancels it.",
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -78,6 +98,10 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnFrameworkUpdate;
+        PurchaseObserver.Dispose();
+        BuyEngine.Dispose();
+        BuyUniversalis.Dispose();
+        TradingLedger.Flush();
         RefreshEngine.Dispose();
         SaleAnnouncements.Dispose();
         SaleHistory.Dispose();
@@ -90,7 +114,9 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi -= OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi -= OpenMainUi;
         CommandManager.RemoveHandler(CommandName);
+        CommandManager.RemoveHandler(BuyCommandName);
         WindowSystem.RemoveAllWindows();
+        buyWindow.Dispose();
         mainWindow.Dispose();
     }
 
@@ -133,6 +159,23 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             default:
                 mainWindow.Toggle();
+                break;
+        }
+    }
+
+    private void OnBuyCommand(string command, string args)
+    {
+        switch (args.Trim().ToLowerInvariant())
+        {
+            case "scan":
+                buyWindow.IsOpen = true;
+                _ = BuyEngine.ScanAsync();
+                break;
+            case "stop":
+                BuyEngine.Stop();
+                break;
+            default:
+                buyWindow.Toggle();
                 break;
         }
     }
