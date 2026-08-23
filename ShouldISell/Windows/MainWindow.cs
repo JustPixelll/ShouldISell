@@ -642,6 +642,19 @@ public sealed partial class MainWindow : Window, IDisposable
 
     private void DrawCurrentListings()
     {
+        if (!plugin.RefreshEngine.IsRunning)
+        {
+            if (ImGui.Button("Refresh current listings"))
+                plugin.RefreshEngine.StartForCurrentListings();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Force a fresh in-game Market Board request for each unique item you currently have listed. This does not scan every owned item.");
+        }
+        else
+        {
+            ImGui.TextDisabled($"Live refresh: {plugin.RefreshEngine.Status}");
+        }
+        ImGui.Spacing();
+
         ImGui.SetNextItemWidth(-1);
         ImGui.InputTextWithHint("##listing-search", "Search current listings...", ref listingSearch, 128);
         DrawListingFilters();
@@ -1137,33 +1150,17 @@ public sealed partial class MainWindow : Window, IDisposable
         return ((double)suggested - row.Listing.UnitPrice) / row.Listing.UnitPrice;
     }
 
-    private static string PriceChangeText(RatedOwnListing row) =>
-        PriceChangeText(row.Listing.UnitPrice, row.Rating?.SuggestedPrice);
+    private static string PriceChangeText(RatedOwnListing row)
+        => ListingGuidance.PriceChangeText(row);
 
     private static bool NeedsPriceChange(RatedOwnListing row)
-    {
-        var change = PriceChangeText(row);
-        return change != "Keep" && change != "—";
-    }
+        => ListingGuidance.NeedsPriceChange(row);
 
     private static bool NeedsStackChange(RatedOwnListing row)
-        => row.Rating?.StackRecommendation is { RecommendedStackSize: > 0 } stack &&
-           row.Listing.Quantity != stack.RecommendedStackSize;
+        => ListingGuidance.NeedsStackChange(row);
 
     private static string PriceChangeText(uint current, uint? suggested)
-    {
-        if (suggested is null || current == 0)
-            return "—";
-
-        var delta = (long)suggested.Value - current;
-        var ratio = delta / (double)current;
-        if (Math.Abs(ratio) <= 0.02 || Math.Abs(delta) <= 1)
-            return "Keep";
-
-        return delta < 0
-            ? $"↓ {Math.Abs(delta):N0}g ({ratio:P1})"
-            : $"↑ {delta:N0}g (+{ratio:P1})";
-    }
+        => ListingGuidance.PriceChangeText(current, suggested);
 
     private static double Score100(SellRating rating)
         => Math.Clamp(rating.OpportunityScore, 0.0, 100.0);

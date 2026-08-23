@@ -99,6 +99,23 @@ public sealed unsafe class ExperimentalRefreshEngine : IDisposable
     }
 
     /// <summary>
+    /// Force-refreshes only the unique items that are currently listed across the player's
+    /// cached retainers. This is intentionally much smaller than a full owned-item audit.
+    /// </summary>
+    public void StartForCurrentListings()
+    {
+        if (IsRunning || !playerState.IsLoaded || playerState.ContentId == 0)
+            return;
+
+        inventory.ScanLoadedContainers(forceFlush: true);
+        var ids = store.GetOwnListings(playerState.ContentId)
+            .Select(x => x.ItemId)
+            .Distinct()
+            .Order();
+        StartQueue(ids, "current retainer listings", onlyStale: false);
+    }
+
+    /// <summary>
     /// Force-refreshes every unique marketable item represented by whichever native sell/inventory
     /// window the player currently has open. Fresh Universalis data does not cause a skip here: this
     /// action explicitly asks FFXIV for a new observation of every item in the selected scope.

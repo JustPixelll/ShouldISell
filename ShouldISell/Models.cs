@@ -42,6 +42,13 @@ public sealed record OwnMarketListing(
     DateTimeOffset PriceChangedUtc,
     DateTimeOffset LastSeenUtc);
 
+public enum PersonalSaleSource
+{
+    History,
+    Announcement,
+    Reconciled,
+}
+
 public sealed record PersonalSale(
     ulong CharacterContentId,
     ulong RetainerId,
@@ -52,7 +59,10 @@ public sealed record PersonalSale(
     long NetGil,
     DateTimeOffset SoldAtUtc,
     string BuyerName,
-    DateTimeOffset CapturedAtUtc);
+    DateTimeOffset CapturedAtUtc,
+    PersonalSaleSource Source = PersonalSaleSource.History,
+    bool NetGilEstimated = false,
+    bool QuantityEstimated = false);
 
 public sealed record ItemInfo(
     uint ItemId,

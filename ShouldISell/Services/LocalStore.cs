@@ -143,6 +143,52 @@ public sealed class LocalStore
                 .ToList();
     }
 
+    public bool AddPersonalSaleAnnouncement(PersonalSale sale)
+    {
+        if (sale.CharacterContentId == 0 || sale.ItemId == 0)
+            return false;
+
+        var normalized = sale with
+        {
+            RetainerName = string.IsNullOrWhiteSpace(sale.RetainerName) ? "Unknown retainer" : sale.RetainerName,
+            BuyerName = sale.BuyerName ?? string.Empty,
+            Source = PersonalSaleSource.Announcement,
+        };
+
+        lock (gate)
+        {
+            // Chat can occasionally be re-emitted during UI/log churn. Collapse only an extremely
+            // tight identical window so two legitimate same-item sales are not accidentally merged.
+            var duplicate = document.PersonalSales.Any(x =>
+                x.CharacterContentId == normalized.CharacterContentId &&
+                x.ItemId == normalized.ItemId &&
+                x.IsHq == normalized.IsHq &&
+                x.Quantity == normalized.Quantity &&
+                x.NetGil == normalized.NetGil &&
+                Math.Abs((x.SoldAtUtc - normalized.SoldAtUtc).TotalSeconds) <= 8);
+            if (duplicate)
+                return false;
+
+            // If exact history was already captured first, do not append a late duplicate
+            // notification for the same transaction.
+            var exactAlreadyExists = document.PersonalSales.Any(x =>
+                x.CharacterContentId == normalized.CharacterContentId &&
+                (x.Source is PersonalSaleSource.History or PersonalSaleSource.Reconciled) &&
+                x.ItemId == normalized.ItemId &&
+                x.IsHq == normalized.IsHq &&
+                (normalized.Quantity <= 0 || x.Quantity == normalized.Quantity) &&
+                (normalized.NetGil <= 0 || x.NetGil == normalized.NetGil) &&
+                Math.Abs((x.SoldAtUtc - normalized.SoldAtUtc).TotalMinutes) <= 10);
+            if (exactAlreadyExists)
+                return false;
+
+            document.PersonalSales.Add(normalized);
+            TrimPersonalSalesUnsafe();
+            dirty = true;
+            return true;
+        }
+    }
+
     public int MergePersonalSaleHistory(
         ulong characterContentId,
         ulong retainerId,
@@ -152,14 +198,9 @@ public sealed class LocalStore
         if (observed.Count == 0)
             return 0;
 
-        var added = 0;
+        var changed = 0;
         lock (gate)
         {
-            var existingKeys = document.PersonalSales
-                .Where(x => x.CharacterContentId == characterContentId && x.RetainerId == retainerId)
-                .Select(PersonalSaleKey)
-                .ToHashSet();
-
             foreach (var sale in observed)
             {
                 var normalized = sale with
@@ -167,28 +208,77 @@ public sealed class LocalStore
                     CharacterContentId = characterContentId,
                     RetainerId = retainerId,
                     RetainerName = retainerName,
+                    BuyerName = sale.BuyerName ?? string.Empty,
+                    Source = PersonalSaleSource.History,
+                    NetGilEstimated = false,
+                    QuantityEstimated = false,
                 };
 
-                if (!existingKeys.Add(PersonalSaleKey(normalized)))
+                // Exact packet rows are the authoritative representation. Reopening View sale
+                // history should not create another copy of a transaction we already know.
+                if (document.PersonalSales.Any(x => PersonalSaleKey(x) == PersonalSaleKey(normalized)))
                     continue;
 
+                var announcementIndex = FindAnnouncementToReconcileUnsafe(normalized);
+                if (announcementIndex >= 0)
+                {
+                    document.PersonalSales[announcementIndex] = normalized with
+                    {
+                        Source = PersonalSaleSource.Reconciled,
+                        CapturedAtUtc = document.PersonalSales[announcementIndex].CapturedAtUtc,
+                    };
+                    changed++;
+                    continue;
+                }
+
                 document.PersonalSales.Add(normalized);
-                added++;
+                changed++;
             }
 
-            if (added > 0)
+            if (changed > 0)
             {
-                // This is a long-lived local ledger rather than a rolling market cache. Keep a
-                // generous cap so repeated sale-history visits can build meaningful statistics.
-                document.PersonalSales = document.PersonalSales
-                    .OrderByDescending(x => x.SoldAtUtc)
-                    .Take(20_000)
-                    .ToList();
+                TrimPersonalSalesUnsafe();
                 dirty = true;
             }
         }
 
-        return added;
+        return changed;
+    }
+
+    private int FindAnnouncementToReconcileUnsafe(PersonalSale exact)
+    {
+        var candidates = document.PersonalSales
+            .Select((sale, index) => (sale, index))
+            .Where(x =>
+                x.sale.CharacterContentId == exact.CharacterContentId &&
+                x.sale.Source == PersonalSaleSource.Announcement &&
+                x.sale.ItemId == exact.ItemId &&
+                x.sale.IsHq == exact.IsHq &&
+                (x.sale.Quantity <= 0 || x.sale.Quantity == exact.Quantity) &&
+                (x.sale.NetGil <= 0 || x.sale.NetGil == exact.NetGil) &&
+                (x.sale.RetainerId == 0 || x.sale.RetainerId == exact.RetainerId) &&
+                Math.Abs((x.sale.SoldAtUtc - exact.SoldAtUtc).TotalMinutes) <= 10)
+            .OrderBy(x => Math.Abs((x.sale.SoldAtUtc - exact.SoldAtUtc).TotalSeconds))
+            .ToList();
+
+        // For the normal passive path quantity + payout make the match effectively unique.
+        // If a future localization prevents one of those fields being parsed, only reconcile an
+        // incomplete announcement when there is exactly one plausible candidate in the tight window.
+        if (candidates.Count == 0)
+            return -1;
+        var best = candidates[0];
+        var complete = best.sale.Quantity > 0 && best.sale.NetGil > 0;
+        return complete || candidates.Count == 1 ? best.index : -1;
+    }
+
+    private void TrimPersonalSalesUnsafe()
+    {
+        // This is a long-lived local ledger rather than a rolling market cache. Keep a generous
+        // cap so passive notifications and repeated exact history visits can build useful stats.
+        document.PersonalSales = document.PersonalSales
+            .OrderByDescending(x => x.SoldAtUtc)
+            .Take(20_000)
+            .ToList();
     }
 
     private static string PersonalSaleKey(PersonalSale sale)
@@ -200,7 +290,7 @@ public sealed class LocalStore
             sale.Quantity,
             sale.NetGil,
             sale.SoldAtUtc.ToUnixTimeSeconds(),
-            sale.BuyerName.Trim().ToUpperInvariant());
+            (sale.BuyerName ?? string.Empty).Trim().ToUpperInvariant());
 
     public MarketSnapshot? GetMarket(uint worldId, uint itemId)
     {

@@ -173,12 +173,22 @@ public sealed class MarketDataCoordinator
             .GroupBy(x => (x.ItemId, x.IsHq))
             .ToDictionary(g => g.Key, g => g.Sum(x => x.Quantity));
 
-        return store.GetOwnListings(playerState.ContentId)
+        var ownListings = store.GetOwnListings(playerState.ContentId);
+        var ownRetainerIds = ownListings
+            .Where(x => x.RetainerId != 0)
+            .Select(x => x.RetainerId)
+            .ToHashSet();
+        var ownRetainerNames = ownListings
+            .Select(x => x.RetainerName)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return ownListings
             .Select(listing =>
             {
                 var item = catalog.Get(listing.ItemId);
                 var market = CloneMarketSnapshot(store.GetMarket(worldId, listing.ItemId));
-                RemoveOwnListingFromMarket(market, listing);
+                RemoveOwnListingsFromMarket(market, listing, ownRetainerIds, ownRetainerNames);
                 totalOwned.TryGetValue((listing.ItemId, listing.IsHq), out var owned);
                 var planningQuantity = Math.Max(listing.Quantity, owned);
                 var rating = CalculateCached(
@@ -258,22 +268,40 @@ public sealed class MarketDataCoordinator
         };
     }
 
-    private static void RemoveOwnListingFromMarket(MarketSnapshot? market, OwnMarketListing own)
+    private static void RemoveOwnListingsFromMarket(
+        MarketSnapshot? market,
+        OwnMarketListing own,
+        IReadOnlySet<ulong> ownRetainerIds,
+        IReadOnlySet<string> ownRetainerNames)
     {
         if (market is null || market.Listings.Count == 0)
             return;
 
-        var index = market.Listings.FindIndex(x =>
+        // Remove every listing belonging to one of this character's known retainers for this
+        // item/HQ variant, independent of its cached price. Previously we removed only an exact
+        // price+quantity match. After repricing, a slightly stale market snapshot could therefore
+        // leave our OLD listing in the competitor depth and make the recommendation bounce e.g.
+        // 81 -> 79 -> 81. Identity-based exclusion makes repricing stable across that refresh gap.
+        market.Listings.RemoveAll(x =>
+            x.ItemId == own.ItemId &&
+            x.IsHq == own.IsHq &&
+            ((x.RetainerId != 0 && ownRetainerIds.Contains(x.RetainerId)) ||
+             (!string.IsNullOrWhiteSpace(x.RetainerName) && ownRetainerNames.Contains(x.RetainerName))));
+
+        // Some data sources occasionally omit retainer identity. Keep the exact-current-listing
+        // fallback for that case without guessing that an arbitrary same-price competitor is ours.
+        if (market.Listings.Any(x =>
+                x.ItemId == own.ItemId && x.IsHq == own.IsHq &&
+                (x.RetainerId != 0 || !string.IsNullOrWhiteSpace(x.RetainerName))))
+            return;
+
+        var exactIndex = market.Listings.FindIndex(x =>
             x.ItemId == own.ItemId &&
             x.IsHq == own.IsHq &&
             x.PricePerUnit == own.UnitPrice &&
-            x.Quantity == own.Quantity &&
-            (x.RetainerId == own.RetainerId ||
-             (!string.IsNullOrWhiteSpace(own.RetainerName) &&
-              string.Equals(x.RetainerName, own.RetainerName, StringComparison.OrdinalIgnoreCase))));
-
-        if (index >= 0)
-            market.Listings.RemoveAt(index);
+            x.Quantity == own.Quantity);
+        if (exactIndex >= 0)
+            market.Listings.RemoveAt(exactIndex);
     }
 
     private static double PriceChangeMagnitude(RatedOwnListing row)

@@ -34,7 +34,7 @@ The plugin rates each known marketable item you own, recommends an executable **
 - **Suggested stack size** using historical buyer quantities, convenience premiums, buyer spend, sell-through and fragmentation cost.
 - **Low-maintenance stack alternative** when fewer listings may be worth a small pricing tradeoff.
 - **Expected after-tax payout per recommended listing** so the overview reflects what one actual sale/listing is worth; full-stock value remains visible in details.
-- **Current Listings** audit with listed quantity, listed price, expected payout, suggested price and repricing delta.
+- **Current Listings** audit with listed quantity, listed price, expected payout, suggested price and repricing delta, plus a dedicated **Refresh current listings** live-market action.
 - **Vendor economics**:
   - NPC buyback acts as a strong gil floor.
   - normal gil-vendor prices can identify evidence-backed convenience arbitrage.
@@ -45,7 +45,8 @@ The plugin rates each known marketable item you own, recommends an executable **
 - **Already-listed highlighting** — owned items with cached current retainer listings are gold-tinted in the overview.
 - **Right-click Suggested price to copy** the raw gil number directly to the clipboard.
 
-- **Personal Sales History** — opening a retainer's **View sale history** captures exact recent personal sales (date/time, buyer, quantity and after-tax net gil), stores them locally, and builds item-level earnings stats with icons.
+- **Automatic Personal Sales History** — retainer-sale announcements are captured passively while you are online; opening **View sale history** backfills offline sales and reconciles live entries with exact retainer, buyer and server timestamps.
+- **Retainer-list attention overlay** — while FFXIV's retainer Market Board listing menu is open, an amber **!** companion strip calls out listings whose price or stack recommendation needs action.
 
 ## Installation — custom Dalamud repository
 
@@ -81,7 +82,8 @@ For the best first audit, do this once after installing:
 5. Visit a **Summoning Bell**.
 6. Select **every retainer one by one** and let its inventory load for a moment.
 7. For retainers that use the Market Board, open the retainer's market/sell interface as well so the plugin can observe its current listings and listing prices.
-8. After every inventory source has been exposed once, run:
+8. Optional but recommended: open **View sale history** once on each retainer to backfill the recent exact sale rows that predate installation. New online sale announcements are captured automatically from then on.
+9. After every inventory source has been exposed once, run:
 
 ```text
 /sellcheck fetch
@@ -89,7 +91,7 @@ For the best first audit, do this once after installing:
 
 This refreshes deeper Universalis history for the marketable items the plugin now knows you own.
 
-9. Then run a full live audit:
+10. Then run a full live audit:
 
 ```text
 /sellcheck audit
@@ -119,7 +121,7 @@ Use **FULL LIVE AUDIT — ALL OWNED** when you want a fresh ranking of everythin
 
 ### Review existing listings
 
-Open each active retainer occasionally, then use the **Current Listings** tab to review:
+Open each active retainer occasionally, then use the **Current Listings** tab to review. Press **Refresh current listings** to live-refresh only the unique items you currently have listed instead of running a full inventory audit:
 
 - listed quantity,
 - current listed price,
@@ -149,18 +151,14 @@ This only affects the **Value** part of the opportunity model. A cheap item can 
 
 ## Sales History
 
-The **Sales History** tab is your personal local selling ledger. It is populated when you open a retainer's **View sale history** window. For each exact sale Should I Sell? can capture:
+The **Sales History** tab is your personal local selling ledger. In v1.0, it has two complementary capture paths:
 
-- item and HQ state,
-- quantity,
-- exact sale timestamp,
-- buyer name,
-- retainer name,
-- and the after-tax gil actually deposited to the retainer.
+- **Passive live capture:** while FFXIV and Should I Sell? are running, the game's retainer-sale notification is observed and the linked item, stack quantity and **after-fees gil** are recorded immediately. This does not modify or suppress the game's chat message.
+- **Exact history reconciliation:** when you open a retainer's **View sale history**, Should I Sell? captures the game's exact recent rows and uses them to backfill offline sales and reconcile matching live entries with the exact retainer, buyer and server sale timestamp.
 
-The overview groups sales by item/HQ variant and shows net earned, transaction count, units sold, net per unit, average sale, best sale and last-sale date, plus fun summary stats such as top earner and best day. Click an item to see its individual transactions.
+The overview groups sales by item/HQ variant and shows net earned, transaction count, units sold, net per unit, average sale, best sale and last-sale date, plus fun summary stats such as top earner and best day. Click an item to see individual transactions and whether each row came from **Live**, **History**, or **Live + confirmed** capture.
 
-The game only sends a limited recent sale-history window when opened (normally up to 20 rows per retainer). The plugin cannot reconstruct older sales that were already outside that window on first install, but repeated visits are deduplicated and new rows accumulate locally over time. Buyer names remain in your local plugin data file.
+FFXIV's exact history window is limited (normally up to 20 recent rows per retainer), so sales that happened while the game/plugin was offline can still fall out of that window before being seen. Live notifications captured while online are persisted immediately. Repeated exact-history visits are deduplicated and reconciled rather than double-counted. Buyer names remain in your local plugin data file.
 
 ## Stars, numeric rating and confidence
 
@@ -222,6 +220,7 @@ Live FFXIV market observations take priority over older Universalis current data
 - `/sellcheck scan` — snapshot currently loaded owned-item containers.
 - `/sellcheck fetch` — force a Universalis refresh for known marketable owned items.
 - `/sellcheck refresh` — refresh stale known owned items through FFXIV.
+- `/sellcheck listings` — force-refresh only the unique items in your cached current retainer listings.
 - `/sellcheck livescan` — force-refresh the currently open player/retainer sell scope.
 - `/sellcheck audit` — force-refresh every unique marketable item in all known ownership snapshots.
 - `/sellcheck stop` — stop the live Market Board queue.

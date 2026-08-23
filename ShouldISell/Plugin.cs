@@ -21,6 +21,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IMarketBoard MarketBoard { get; private set; } = null!;
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
     [PluginService] internal static IGameInteropProvider GameInterop { get; private set; } = null!;
+    [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
@@ -31,10 +32,12 @@ public sealed class Plugin : IDalamudPlugin
     public UniversalisClient Universalis { get; }
     public MarketBoardObserver MarketObserver { get; }
     public RetainerSaleHistoryObserver SaleHistory { get; }
+    public RetainerSaleAnnouncementObserver SaleAnnouncements { get; }
     public ScoreCalculator Scores { get; }
     public MarketDataCoordinator Coordinator { get; }
     public SellScanContextService SellScanContext { get; }
     public ExperimentalRefreshEngine RefreshEngine { get; }
+    public RetainerListingAttentionOverlay ListingAttentionOverlay { get; }
 
     public readonly WindowSystem WindowSystem = new("ShouldISell");
     private readonly MainWindow mainWindow;
@@ -49,20 +52,23 @@ public sealed class Plugin : IDalamudPlugin
         Universalis = new UniversalisClient(Log);
         MarketObserver = new MarketBoardObserver(MarketBoard, PlayerState, Store, Log);
         SaleHistory = new RetainerSaleHistoryObserver(GameInterop, PlayerState, Store, Log);
+        SaleAnnouncements = new RetainerSaleAnnouncementObserver(ChatGui, PlayerState, Store, Log);
         Scores = new ScoreCalculator();
         Coordinator = new MarketDataCoordinator(PlayerState, Configuration, Store, Catalog, Inventory, Universalis, Scores, Log);
         SellScanContext = new SellScanContextService(GameGui);
         RefreshEngine = new ExperimentalRefreshEngine(Configuration, Framework, PlayerState, Catalog, Inventory, Store, MarketObserver, SellScanContext, Log);
+        ListingAttentionOverlay = new RetainerListingAttentionOverlay(GameGui, PlayerState, Coordinator, Log);
 
         mainWindow = new MainWindow(this);
         WindowSystem.AddWindow(mainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open Should I Sell?. /sellcheck scan, /sellcheck fetch, /sellcheck refresh, /sellcheck livescan, /sellcheck audit, /sellcheck stop",
+            HelpMessage = "Open Should I Sell?. /sellcheck scan, /sellcheck fetch, /sellcheck refresh, /sellcheck listings, /sellcheck livescan, /sellcheck audit, /sellcheck stop",
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
+        PluginInterface.UiBuilder.Draw += ListingAttentionOverlay.Draw;
         PluginInterface.UiBuilder.OpenMainUi += OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi += OpenMainUi;
 
@@ -73,11 +79,13 @@ public sealed class Plugin : IDalamudPlugin
     {
         Framework.Update -= OnFrameworkUpdate;
         RefreshEngine.Dispose();
+        SaleAnnouncements.Dispose();
         SaleHistory.Dispose();
         MarketObserver.Dispose();
         Universalis.Dispose();
         Store.Flush();
 
+        PluginInterface.UiBuilder.Draw -= ListingAttentionOverlay.Draw;
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi -= OpenMainUi;
@@ -110,6 +118,9 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "refresh":
                 RefreshEngine.StartForStaleOwnedItems();
+                break;
+            case "listings":
+                RefreshEngine.StartForCurrentListings();
                 break;
             case "livescan":
                 RefreshEngine.StartForCurrentSellWindow();
