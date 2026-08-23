@@ -46,7 +46,7 @@ public sealed class BuyOpportunityScanner : IDisposable
 
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(30);
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "1.1.0"));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "1.1.2"));
     }
 
     public bool IsScanning { get; private set; }
@@ -107,6 +107,12 @@ public sealed class BuyOpportunityScanner : IDisposable
             {
                 token.ThrowIfCancellationRequested();
                 var aggregated = await FetchAggregatedAsync(worldId, batch, token);
+                if (!playerState.IsLoaded || playerState.CurrentWorld.RowId != worldId)
+                {
+                    lock (resultGate) opportunities = new List<BuyOpportunity>();
+                    Status = "World changed during discovery. Results were discarded; run discovery again on your current world.";
+                    return;
+                }
                 foreach (var row in aggregated)
                 {
                     if (!byId.TryGetValue(row.ItemId, out var entry))
@@ -150,17 +156,23 @@ public sealed class BuyOpportunityScanner : IDisposable
                 .ToList();
 
             DeepItemsTotal = selectedIds.Count;
-            Status = $"Deep analysis: 0 / {DeepItemsTotal:N0} candidate items...";
+            Status = $"Detailed Universalis: 0 / {DeepItemsTotal:N0} candidate items...";
             var deepByItem = new Dictionary<uint, DeepMarketData>();
             foreach (var batch in Batch(selectedIds))
             {
                 token.ThrowIfCancellationRequested();
                 var deep = await FetchDeepAsync(worldId, batch, token);
+                if (!playerState.IsLoaded || playerState.CurrentWorld.RowId != worldId)
+                {
+                    lock (resultGate) opportunities = new List<BuyOpportunity>();
+                    Status = "World changed during detailed analysis. Results were discarded; run discovery again on your current world.";
+                    return;
+                }
                 foreach (var pair in deep)
                     deepByItem[pair.Key] = pair.Value;
 
                 DeepItemsScanned = Math.Min(DeepItemsTotal, DeepItemsScanned + batch.Count);
-                Status = $"Deep analysis: {DeepItemsScanned:N0} / {DeepItemsTotal:N0} candidate items...";
+                Status = $"Detailed Universalis: {DeepItemsScanned:N0} / {DeepItemsTotal:N0} candidate items...";
                 await Task.Delay(100, token);
             }
 
@@ -191,6 +203,13 @@ public sealed class BuyOpportunityScanner : IDisposable
                 .ThenByDescending(x => x.PotentialProfit)
                 .Take(500)
                 .ToList();
+
+            if (!playerState.IsLoaded || playerState.CurrentWorld.RowId != worldId)
+            {
+                lock (resultGate) opportunities = new List<BuyOpportunity>();
+                Status = "World changed before discovery completed. Results were discarded; run discovery again on your current world.";
+                return;
+            }
 
             lock (resultGate)
                 opportunities = final;
@@ -1015,3 +1034,9 @@ public sealed class BuyOpportunityScanner : IDisposable
         public List<MarketSale> Sales { get; } = new();
     }
 }
+
+
+
+
+
+
