@@ -1,0 +1,54 @@
+name: Build Should I Sell
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download Dalamud development files
+        shell: pwsh
+        run: |
+          $destination = "$env:AppData\XIVLauncher\addon\Hooks\dev"
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Invoke-WebRequest -Uri "https://goatcorp.github.io/dalamud-distrib/latest.zip" -OutFile "$env:RUNNER_TEMP\dalamud.zip"
+          Expand-Archive -Force "$env:RUNNER_TEMP\dalamud.zip" $destination
+
+      - name: Restore
+        run: dotnet restore .\ShouldISell\ShouldISell.csproj
+
+      - name: Build Release
+        run: dotnet build .\ShouldISell\ShouldISell.csproj --configuration Release --no-restore
+
+      - name: Find packaged plugin
+        id: package
+        shell: pwsh
+        run: |
+          $package = Get-ChildItem -Path ".\ShouldISell\bin" -Filter "latest.zip" -Recurse | Select-Object -First 1
+          if (-not $package) { throw "DalamudPackager did not create latest.zip" }
+          "path=$($package.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Host "Package: $($package.FullName)"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShouldISell
+          path: ${{ steps.package.outputs.path }}
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,27 @@
+[
+  {
+    "Author": "JustPixelll",
+    "Name": "Should I Sell?",
+    "Punchline": "Know what to sell, how much, and for how much.",
+    "Description": "Analyze every known marketable item you own using live FFXIV Market Board data, Universalis history, supply and demand, stack behavior, vendor economics and after-tax value. Get sell ratings, suggested prices and stack sizes, full live audits, current-listing guidance, and recommended-listing payout estimates.",
+    "Changelog": "Initial public release of Should I Sell?\r\n\r\nHighlights:\r\n- 1-5 star sell ratings plus strict 0-100 opportunity score\r\n- Suggested executable Market Board price\r\n- Suggested stack size and low-maintenance alternative\r\n- Recommended-listing after-tax payout\r\n- Gold highlighting for already-listed owned items\r\n- Current Listings audit with expected payout and repricing guidance\r\n- Full live audit across known owned items\r\n- Universalis history integration\r\n- Vendor buyback and gil-shop economics\r\n- Sortable/filterable tables, item details and clipboard price shortcut\r\n\r\nRequires Dalamud API 15.",
+    "InternalName": "ShouldISell",
+    "AssemblyVersion": "0.8.0.0",
+    "RepoUrl": "https://github.com/JustPixelll/ShouldISell",
+    "ApplicableVersion": "any",
+    "CategoryTags": [
+      "utility"
+    ],
+    "DalamudApiLevel": 15,
+    "IconUrl": "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/icon.png",
+    "ImageUrls": [
+      "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/overview.png",
+      "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/details.png"
+    ],
+    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v0.8.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v0.8.0/latest.zip",
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "LastUpdate": "1787492700"
+  }
+]

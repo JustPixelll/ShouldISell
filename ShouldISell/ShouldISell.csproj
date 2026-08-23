@@ -1,0 +1,13 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.8.0.0</Version>
+    <Author>JustPixelll</Author>
+    <Name>Should I Sell?</Name>
+    <Punchline>Know when your items are worth selling.</Punchline>
+    <Description>Analyze owned FFXIV items for Market Board selling opportunities with suggested prices, stack sizes, current-listing audits, and live market refreshes.</Description>
+    <PackageProjectUrl>https://github.com/JustPixelll/ShouldISell</PackageProjectUrl>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>
