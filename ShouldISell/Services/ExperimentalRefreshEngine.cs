@@ -99,6 +99,18 @@ public sealed unsafe class ExperimentalRefreshEngine : IDisposable
     }
 
     /// <summary>
+    /// Force-refreshes one arbitrary marketable item. Should I Buy? uses this as a user-triggered
+    /// live verification step before the player commits gil to a recommendation. It is intentionally
+    /// the same normal ItemSearch request path as the existing sell audit and never purchases.
+    /// </summary>
+    public void StartForItem(uint itemId, string scope = "selected item")
+    {
+        if (IsRunning || !playerState.IsLoaded || itemId == 0)
+            return;
+        StartQueue(new[] { itemId }, scope, onlyStale: false);
+    }
+
+    /// <summary>
     /// Force-refreshes only the unique items that are currently listed across the player's
     /// cached retainers. This is intentionally much smaller than a full owned-item audit.
     /// </summary>
