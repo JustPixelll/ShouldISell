@@ -51,6 +51,14 @@ public sealed unsafe class SellScanContextService
     public bool IsMarketUiVisible()
         => MarketBoardAddons.Any(IsVisible) || RetainerGridAddons.Any(IsVisible);
 
+    /// <summary>
+    /// Should I Buy? native Deep Scan is intentionally gated to the retainer-market workflow,
+    /// where repeated ItemSearch requests are least surprising to the player and the native
+    /// market proxy is expected to be initialized.
+    /// </summary>
+    public bool IsRetainerMarketUiVisible()
+        => IsVisible("RetainerSellList") || RetainerGridAddons.Any(IsVisible);
+
     public SellScanContext Detect()
     {
         // Retainer grids take priority because the normal inventory may also remain visible
