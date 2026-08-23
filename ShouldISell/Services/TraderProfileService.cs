@@ -1,3 +1,5 @@
+using Dalamud.Plugin.Services;
+
 namespace ShouldISell.Services;
 
 public sealed class TraderProfileService
