@@ -1,0 +1,52 @@
+name: Apply v1.1.4 sell location filter once
+
+on:
+  push:
+    branches: [ feature/v1.1.4-sell-location-filter ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-commit:
+    if: github.event.head_commit.message == 'APPLY-V1.1.4-SELL-LOCATION-FILTER'
+    runs-on: windows-2022
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: feature/v1.1.4-sell-location-filter
+          fetch-depth: 0
+
+      - name: Apply targeted source patches
+        shell: pwsh
+        run: .\scripts\apply-v1.1.4-sell-location-filter.ps1
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download Dalamud development files
+        shell: pwsh
+        run: |
+          $destination = "$env:AppData\XIVLauncher\addon\Hooks\dev"
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Invoke-WebRequest -Uri "https://goatcorp.github.io/dalamud-distrib/latest.zip" -OutFile "$env:RUNNER_TEMP\dalamud.zip"
+          Expand-Archive -Force "$env:RUNNER_TEMP\dalamud.zip" $destination
+
+      - name: Restore
+        run: dotnet restore .\ShouldISell\ShouldISell.csproj
+
+      - name: Build patched plugin
+        run: dotnet build .\ShouldISell\ShouldISell.csproj --configuration Release --no-restore
+
+      - name: Commit patched sources
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ShouldISell/Models.cs ShouldISell/Services/MarketDataCoordinator.cs ShouldISell/Windows/MainWindow.cs ShouldISell/ShouldISell.csproj
+          if (git diff --cached --quiet) { throw "Patch produced no source changes." }
+          git commit -m "feat: filter owned sell items by inventory or retainer"
+          git push origin HEAD:feature/v1.1.4-sell-location-filter
