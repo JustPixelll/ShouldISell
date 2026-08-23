@@ -50,6 +50,17 @@ public sealed class GameItemCatalog
 
     public bool IsMarketable(uint itemId) => Get(itemId).IsMarketable;
 
+    public string GetWorldName(uint worldId)
+    {
+        if (worldId == 0)
+            return "Unknown world";
+
+        var sheet = data.GetExcelSheet<World>();
+        return sheet.TryGetRow(worldId, out var world) && !string.IsNullOrWhiteSpace(world.Name.ToString())
+            ? world.Name.ToString()
+            : $"World #{worldId}";
+    }
+
     /// <summary>
     /// Returns FFXIV's normal item UI categories. Should I Buy? uses these as its discovery
     /// scope rather than maintaining a brittle hand-written list of item IDs.
