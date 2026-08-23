@@ -42,6 +42,18 @@ public sealed record OwnMarketListing(
     DateTimeOffset PriceChangedUtc,
     DateTimeOffset LastSeenUtc);
 
+public sealed record PersonalSale(
+    ulong CharacterContentId,
+    ulong RetainerId,
+    string RetainerName,
+    uint ItemId,
+    int Quantity,
+    bool IsHq,
+    long NetGil,
+    DateTimeOffset SoldAtUtc,
+    string BuyerName,
+    DateTimeOffset CapturedAtUtc);
+
 public sealed record ItemInfo(
     uint ItemId,
     string Name,

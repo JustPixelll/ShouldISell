@@ -134,6 +134,74 @@ public sealed class LocalStore
         }
     }
 
+    public IReadOnlyList<PersonalSale> GetPersonalSales(ulong characterContentId)
+    {
+        lock (gate)
+            return document.PersonalSales
+                .Where(x => x.CharacterContentId == characterContentId)
+                .OrderByDescending(x => x.SoldAtUtc)
+                .ToList();
+    }
+
+    public int MergePersonalSaleHistory(
+        ulong characterContentId,
+        ulong retainerId,
+        string retainerName,
+        IReadOnlyList<PersonalSale> observed)
+    {
+        if (observed.Count == 0)
+            return 0;
+
+        var added = 0;
+        lock (gate)
+        {
+            var existingKeys = document.PersonalSales
+                .Where(x => x.CharacterContentId == characterContentId && x.RetainerId == retainerId)
+                .Select(PersonalSaleKey)
+                .ToHashSet();
+
+            foreach (var sale in observed)
+            {
+                var normalized = sale with
+                {
+                    CharacterContentId = characterContentId,
+                    RetainerId = retainerId,
+                    RetainerName = retainerName,
+                };
+
+                if (!existingKeys.Add(PersonalSaleKey(normalized)))
+                    continue;
+
+                document.PersonalSales.Add(normalized);
+                added++;
+            }
+
+            if (added > 0)
+            {
+                // This is a long-lived local ledger rather than a rolling market cache. Keep a
+                // generous cap so repeated sale-history visits can build meaningful statistics.
+                document.PersonalSales = document.PersonalSales
+                    .OrderByDescending(x => x.SoldAtUtc)
+                    .Take(20_000)
+                    .ToList();
+                dirty = true;
+            }
+        }
+
+        return added;
+    }
+
+    private static string PersonalSaleKey(PersonalSale sale)
+        => string.Join('|',
+            sale.CharacterContentId,
+            sale.RetainerId,
+            sale.ItemId,
+            sale.IsHq ? 1 : 0,
+            sale.Quantity,
+            sale.NetGil,
+            sale.SoldAtUtc.ToUnixTimeSeconds(),
+            sale.BuyerName.Trim().ToUpperInvariant());
+
     public MarketSnapshot? GetMarket(uint worldId, uint itemId)
     {
         lock (gate)
@@ -334,5 +402,6 @@ public sealed class LocalStore
         public List<InventoryContainerSnapshot> InventorySnapshots { get; set; } = new();
         public Dictionary<string, MarketSnapshot> Markets { get; set; } = new();
         public List<OwnMarketListing> OwnListings { get; set; } = new();
+        public List<PersonalSale> PersonalSales { get; set; } = new();
     }
 }

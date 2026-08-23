@@ -20,6 +20,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPlayerState PlayerState { get; private set; } = null!;
     [PluginService] internal static IMarketBoard MarketBoard { get; private set; } = null!;
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
+    [PluginService] internal static IGameInteropProvider GameInterop { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
@@ -29,6 +30,7 @@ public sealed class Plugin : IDalamudPlugin
     public InventoryScanner Inventory { get; }
     public UniversalisClient Universalis { get; }
     public MarketBoardObserver MarketObserver { get; }
+    public RetainerSaleHistoryObserver SaleHistory { get; }
     public ScoreCalculator Scores { get; }
     public MarketDataCoordinator Coordinator { get; }
     public SellScanContextService SellScanContext { get; }
@@ -46,6 +48,7 @@ public sealed class Plugin : IDalamudPlugin
         Inventory = new InventoryScanner(PlayerState, Catalog, Store, Log);
         Universalis = new UniversalisClient(Log);
         MarketObserver = new MarketBoardObserver(MarketBoard, PlayerState, Store, Log);
+        SaleHistory = new RetainerSaleHistoryObserver(GameInterop, PlayerState, Store, Log);
         Scores = new ScoreCalculator();
         Coordinator = new MarketDataCoordinator(PlayerState, Configuration, Store, Catalog, Inventory, Universalis, Scores, Log);
         SellScanContext = new SellScanContextService(GameGui);
@@ -70,6 +73,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         Framework.Update -= OnFrameworkUpdate;
         RefreshEngine.Dispose();
+        SaleHistory.Dispose();
         MarketObserver.Dispose();
         Universalis.Dispose();
         Store.Flush();

@@ -7,7 +7,7 @@ using ShouldISell.Services;
 
 namespace ShouldISell.Windows;
 
-public sealed class MainWindow : Window, IDisposable
+public sealed partial class MainWindow : Window, IDisposable
 {
     private readonly Plugin plugin;
     private string search = string.Empty;
@@ -69,6 +69,11 @@ public sealed class MainWindow : Window, IDisposable
             if (ImGui.BeginTabItem("Current Listings"))
             {
                 DrawCurrentListings();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Sales History"))
+            {
+                DrawSalesHistory();
                 ImGui.EndTabItem();
             }
             if (ImGui.BeginTabItem("Market Refresh"))
@@ -649,6 +654,9 @@ public sealed class MainWindow : Window, IDisposable
         var rows = allRows.Where(PassesListingFilters).ToList();
 
         ImGui.TextDisabled($"Showing {rows.Count:N0} of {allRows.Count:N0} cached current retainer listing(s). Open each retainer once to populate/refresh this tab.");
+        ImGui.TextColored(AttentionTextColor, "Amber = listing differs from recommendation");
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("A row turns amber when the listed price needs changing OR the listed quantity differs from the recommended stack size. KEEP price recommendations are not flagged.");
         ImGui.TextWrapped("‘Known listed’ starts when Should I Sell? first observes that item in that market slot. FFXIV does not expose the original server-side listing timestamp, so listings that predate the addon may actually be older.");
         ImGui.Spacing();
 
@@ -679,7 +687,10 @@ public sealed class MainWindow : Window, IDisposable
             {
                 var selection = FromListing(row);
                 var isSelected = IsSameSelection(selection);
-                var clicked = BeginClickableRow($"listing-{row.Listing.RetainerId}-{row.Listing.MarketSlot}", isSelected);
+                var needsPriceChange = NeedsPriceChange(row);
+                var needsStackChange = NeedsStackChange(row);
+                var needsAttention = needsPriceChange || needsStackChange;
+                var clicked = BeginClickableRow($"listing-{row.Listing.RetainerId}-{row.Listing.MarketSlot}", isSelected, needsAttention: needsAttention);
                 if (clicked)
                     selected = isSelected ? null : selection;
 
@@ -690,9 +701,15 @@ public sealed class MainWindow : Window, IDisposable
                 ImGui.TableSetColumnIndex(2);
                 ImGui.TextUnformatted(row.Item.Name + (row.Listing.IsHq ? " [HQ]" : string.Empty));
                 ImGui.TableSetColumnIndex(3);
-                ImGui.TextUnformatted(row.Listing.Quantity.ToString("N0"));
+                if (needsStackChange)
+                    ImGui.TextColored(AttentionTextColor, row.Listing.Quantity.ToString("N0"));
+                else
+                    ImGui.TextUnformatted(row.Listing.Quantity.ToString("N0"));
                 ImGui.TableSetColumnIndex(4);
-                ImGui.TextUnformatted(Gil(row.Listing.UnitPrice));
+                if (needsPriceChange)
+                    ImGui.TextColored(AttentionTextColor, Gil(row.Listing.UnitPrice));
+                else
+                    ImGui.TextUnformatted(Gil(row.Listing.UnitPrice));
                 ImGui.TableSetColumnIndex(5);
                 ImGui.TextUnformatted(Gil(ExpectedListingPayout(row.Listing)));
                 ImGui.TableSetColumnIndex(6);
@@ -700,7 +717,10 @@ public sealed class MainWindow : Window, IDisposable
                 ImGui.TableSetColumnIndex(7);
                 DrawStackCell(row.Rating, row.TotalOwnedQuantity > 0 ? $"Plan considers {row.TotalOwnedQuantity:N0} total known owned unit(s), not only this listing." : null);
                 ImGui.TableSetColumnIndex(8);
-                ImGui.TextUnformatted(PriceChangeText(row));
+                if (needsPriceChange)
+                    ImGui.TextColored(AttentionTextColor, PriceChangeText(row));
+                else
+                    ImGui.TextUnformatted(PriceChangeText(row));
                 ImGui.TableSetColumnIndex(9);
                 ImGui.TextUnformatted(Elapsed(row.Listing.FirstSeenUtc));
                 ImGui.TableSetColumnIndex(10);
@@ -954,8 +974,10 @@ public sealed class MainWindow : Window, IDisposable
 
     private static readonly Vector4 ListedRowBackground = new(0.52f, 0.36f, 0.06f, 0.24f);
     private static readonly Vector4 ListedRowTextColor = new(1.00f, 0.82f, 0.34f, 1.00f);
+    private static readonly Vector4 AttentionRowBackground = new(0.62f, 0.28f, 0.03f, 0.30f);
+    private static readonly Vector4 AttentionTextColor = new(1.00f, 0.62f, 0.24f, 1.00f);
 
-    private bool BeginClickableRow(string id, bool isSelected, bool isListed = false)
+    private bool BeginClickableRow(string id, bool isSelected, bool isListed = false, bool needsAttention = false)
     {
         ImGui.TableNextRow();
         ImGui.TableSetColumnIndex(0);
@@ -966,7 +988,9 @@ public sealed class MainWindow : Window, IDisposable
             new Vector2(0, ImGui.GetTextLineHeightWithSpacing()));
         var hovered = ImGui.IsItemHovered();
 
-        if (isListed)
+        if (needsAttention)
+            ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, ImGui.GetColorU32(AttentionRowBackground));
+        else if (isListed)
             ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, ImGui.GetColorU32(ListedRowBackground));
         if (hovered)
             ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, ImGui.GetColorU32(ImGuiCol.HeaderHovered));
@@ -1115,6 +1139,16 @@ public sealed class MainWindow : Window, IDisposable
 
     private static string PriceChangeText(RatedOwnListing row) =>
         PriceChangeText(row.Listing.UnitPrice, row.Rating?.SuggestedPrice);
+
+    private static bool NeedsPriceChange(RatedOwnListing row)
+    {
+        var change = PriceChangeText(row);
+        return change != "Keep" && change != "—";
+    }
+
+    private static bool NeedsStackChange(RatedOwnListing row)
+        => row.Rating?.StackRecommendation is { RecommendedStackSize: > 0 } stack &&
+           row.Listing.Quantity != stack.RecommendedStackSize;
 
     private static string PriceChangeText(uint current, uint? suggested)
     {

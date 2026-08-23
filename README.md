@@ -45,6 +45,8 @@ The plugin rates each known marketable item you own, recommends an executable **
 - **Already-listed highlighting** — owned items with cached current retainer listings are gold-tinted in the overview.
 - **Right-click Suggested price to copy** the raw gil number directly to the clipboard.
 
+- **Personal Sales History** — opening a retainer's **View sale history** captures exact recent personal sales (date/time, buyer, quantity and after-tax net gil), stores them locally, and builds item-level earnings stats with icons.
+
 ## Installation — custom Dalamud repository
 
 Add this repository URL to Dalamud:
@@ -144,6 +146,21 @@ Example with a setting of **10,000 gil**:
 - A recommended listing worth ~100,000g is strongly positive on absolute value.
 
 This only affects the **Value** part of the opportunity model. A cheap item can still be a very good market if demand, supply and pricing are excellent. Recommendations that require very large numbers of separate listings also receive a mild execution-friction penalty so a 100-click selling plan does not rank like a frictionless one-listing sale.
+
+## Sales History
+
+The **Sales History** tab is your personal local selling ledger. It is populated when you open a retainer's **View sale history** window. For each exact sale Should I Sell? can capture:
+
+- item and HQ state,
+- quantity,
+- exact sale timestamp,
+- buyer name,
+- retainer name,
+- and the after-tax gil actually deposited to the retainer.
+
+The overview groups sales by item/HQ variant and shows net earned, transaction count, units sold, net per unit, average sale, best sale and last-sale date, plus fun summary stats such as top earner and best day. Click an item to see its individual transactions.
+
+The game only sends a limited recent sale-history window when opened (normally up to 20 rows per retainer). The plugin cannot reconstruct older sales that were already outside that window on first install, but repeated visits are deduplicated and new rows accumulate locally over time. Buyer names remain in your local plugin data file.
 
 ## Stars, numeric rating and confidence
 
