@@ -1,6 +1,7 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
+using ShouldISell.Services;
 
 namespace ShouldISell.Windows;
 
@@ -12,6 +13,7 @@ public sealed partial class SuiteWindow
         ImGui.Spacing();
 
         DrawBuyControls();
+        DrawBuyPortfolio();
         ImGui.Separator();
         DrawBuyResults();
     }
@@ -119,6 +121,7 @@ public sealed partial class SuiteWindow
             if (ImGui.Button("SCAN FOR GOOD BUYS"))
             {
                 selectedBuyOpportunity = null;
+                buyPortfolioPlan = null;
                 _ = plugin.BuyScanner.ScanAsync();
             }
         }
@@ -184,6 +187,81 @@ public sealed partial class SuiteWindow
             ImGui.EndChild();
         }
         ImGui.TextDisabled($"{selected.Count:N0} of {categories.Count:N0} categories selected.");
+    }
+
+    private void DrawBuyPortfolio()
+    {
+        var opportunities = plugin.BuyScanner.GetOpportunities();
+        if (opportunities.Count == 0 || plugin.BuyScanner.IsScanning)
+            return;
+
+        ImGui.Spacing();
+        if (ImGui.Button("BUILD BUDGET PORTFOLIO"))
+            buyPortfolioPlan = PortfolioAllocator.Build(opportunities, plugin.Configuration.BuyBudgetGil);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Chooses at most one strategy/package per item/HQ variant and maximizes total risk-adjusted profit without exceeding your budget.");
+
+        if (buyPortfolioPlan is not { } plan)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled("Optional: allocate your budget across several opportunities instead of ranking one trade at a time.");
+            return;
+        }
+
+        if (plan.BudgetGil != plugin.Configuration.BuyBudgetGil)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled("Budget changed — rebuild portfolio to update allocation.");
+        }
+
+        ImGui.TextWrapped($"Portfolio: invest {plan.InvestedGil:N0}g of {plan.BudgetGil:N0}g across {plan.Selections.Count:N0} position(s), leaving {plan.ReserveGil:N0}g unallocated. The optimizer is allowed to keep cash when the current scan does not contain enough worthwhile opportunities.");
+        if (ImGui.BeginTable("##buy-portfolio-metrics", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV))
+        {
+            ImGui.TableNextRow();
+            ImGui.TableSetColumnIndex(0); ImGui.TextDisabled("Invested"); ImGui.TextUnformatted(Gil(plan.InvestedGil));
+            ImGui.TableSetColumnIndex(1); ImGui.TextDisabled("Potential profit"); ImGui.TextUnformatted(Gil(plan.PotentialProfit));
+            ImGui.TableSetColumnIndex(2); ImGui.TextDisabled("Risk-adjusted profit"); ImGui.TextUnformatted(Gil(plan.RiskAdjustedProfit));
+            ImGui.TableSetColumnIndex(3); ImGui.TextDisabled("Weighted score"); ImGui.TextUnformatted(plan.WeightedOpportunityScore.ToString("0.0"));
+            ImGui.EndTable();
+        }
+
+        if (plan.Selections.Count == 0)
+        {
+            ImGui.TextDisabled("No current opportunity survived the configured scanner filters and budget constraints.");
+            return;
+        }
+
+        if (ImGui.CollapsingHeader($"Recommended basket ({plan.Selections.Count:N0})##buy-portfolio-basket", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            if (ImGui.BeginTable("##buy-portfolio-table", 8, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable))
+            {
+                ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn("Strategy", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("Buy", ImGuiTableColumnFlags.WidthFixed, 50 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("Potential", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("Risk adj.", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("ROI", ImGuiTableColumnFlags.WidthFixed, 60 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("Liquidate", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
+                ImGui.TableHeadersRow();
+                foreach (var row in plan.Selections)
+                {
+                    ImGui.TableNextRow();
+                    ImGui.TableSetColumnIndex(0);
+                    var label = row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty);
+                    if (ImGui.Selectable($"{label}##portfolio-{row.Item.ItemId}-{row.IsHq}-{row.Kind}", selectedBuyOpportunity == row))
+                        selectedBuyOpportunity = row;
+                    ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted(row.StrategyLabel);
+                    ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted(row.AcquireQuantity.ToString("N0"));
+                    ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted(Gil(row.AcquisitionCost));
+                    ImGui.TableSetColumnIndex(4); ImGui.TextUnformatted(Gil(row.PotentialProfit));
+                    ImGui.TableSetColumnIndex(5); ImGui.TextUnformatted(Gil(row.RiskAdjustedProfit));
+                    ImGui.TableSetColumnIndex(6); ImGui.TextUnformatted(Percent(row.Roi));
+                    ImGui.TableSetColumnIndex(7); ImGui.TextUnformatted(Days(row.EstimatedLiquidationDays));
+                }
+                ImGui.EndTable();
+            }
+        }
     }
 
     private void DrawBuyResults()
