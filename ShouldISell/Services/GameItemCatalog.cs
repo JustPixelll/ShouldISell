@@ -8,6 +8,7 @@ public sealed class GameItemCatalog
     private readonly IDataManager data;
     private readonly Dictionary<uint, ItemInfo> cache = new();
     private HashSet<uint>? gilShopItems;
+    private IReadOnlyList<(uint Id, string Name)>? marketCategories;
 
     public GameItemCatalog(IDataManager data)
     {
@@ -47,6 +48,42 @@ public sealed class GameItemCatalog
     }
 
     public bool IsMarketable(uint itemId) => Get(itemId).IsMarketable;
+
+    public uint GetMarketSearchCategoryId(uint itemId)
+    {
+        var sheet = data.GetExcelSheet<Item>();
+        return sheet.TryGetRow(itemId, out var row) ? row.ItemSearchCategory.RowId : 0;
+    }
+
+    public IReadOnlyList<(uint Id, string Name)> GetMarketSearchCategories()
+    {
+        if (marketCategories is not null)
+            return marketCategories;
+
+        var result = new List<(uint Id, string Name)>();
+        try
+        {
+            foreach (var row in data.GetExcelSheet<ItemSearchCategory>())
+            {
+                if (row.RowId == 0)
+                    continue;
+                var name = row.Name.ToString();
+                if (string.IsNullOrWhiteSpace(name))
+                    continue;
+                result.Add((row.RowId, name));
+            }
+        }
+        catch
+        {
+            // Category scoping is optional. Returning an empty list makes the buy scanner behave
+            // as "all marketable items" rather than preventing the plugin from loading after a sheet change.
+        }
+
+        marketCategories = result
+            .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        return marketCategories;
+    }
 
     private bool IsSoldByGilVendor(uint itemId)
     {
