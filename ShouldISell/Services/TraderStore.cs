@@ -66,6 +66,102 @@ public sealed class TraderStore
         return true;
     }
 
+    public IReadOnlyList<GilFlowEntry> GetGilFlows(ulong characterContentId)
+    {
+        lock (gate)
+            return document.GilFlows
+                .Where(x => x.CharacterContentId == characterContentId)
+                .OrderByDescending(x => x.AtUtc)
+                .ToList();
+    }
+
+    public bool AddGilFlow(GilFlowEntry flow, bool flush = true)
+    {
+        if (string.IsNullOrWhiteSpace(flow.Id) || flow.CharacterContentId == 0 || flow.Amount == 0)
+            return false;
+
+        lock (gate)
+        {
+            if (document.GilFlows.Any(x => string.Equals(x.Id, flow.Id, StringComparison.Ordinal)))
+                return false;
+
+            document.GilFlows.Add(flow);
+            document.GilFlows = document.GilFlows
+                .OrderByDescending(x => x.AtUtc)
+                .Take(50_000)
+                .ToList();
+            document.Version = Math.Max(document.Version, 2);
+            dirty = true;
+        }
+
+        if (flush)
+            Flush();
+        return true;
+    }
+
+    public bool UpdateGilFlowClassification(
+        string id,
+        GilFlowCategory category,
+        string source,
+        bool autoClassified,
+        string note,
+        bool flush = true)
+    {
+        lock (gate)
+        {
+            var index = document.GilFlows.FindIndex(x => string.Equals(x.Id, id, StringComparison.Ordinal));
+            if (index < 0)
+                return false;
+
+            var current = document.GilFlows[index];
+            document.GilFlows[index] = current with
+            {
+                Category = category,
+                Source = string.IsNullOrWhiteSpace(source) ? current.Source : source,
+                AutoClassified = autoClassified,
+                Note = note,
+            };
+            dirty = true;
+        }
+
+        if (flush)
+            Flush();
+        return true;
+    }
+
+    public string GetPurchaseKey(PersonalPurchase purchase)
+        => $"{purchase.CharacterContentId}:{purchase.PurchasedAtUtc.ToUniversalTime().Ticks}:{purchase.ListingId}:{purchase.ItemId}:{(purchase.IsHq ? 1 : 0)}:{purchase.Quantity}:{purchase.TotalCost}";
+
+    public bool IsPurchaseExcluded(PersonalPurchase purchase)
+    {
+        var key = GetPurchaseKey(purchase);
+        lock (gate)
+            return document.ExcludedPurchaseKeys.Any(x => string.Equals(x, key, StringComparison.Ordinal));
+    }
+
+    public bool SetPurchaseExcluded(PersonalPurchase purchase, bool excluded, bool flush = true)
+    {
+        var key = GetPurchaseKey(purchase);
+        lock (gate)
+        {
+            var exists = document.ExcludedPurchaseKeys.Any(x => string.Equals(x, key, StringComparison.Ordinal));
+            if (excluded == exists)
+                return false;
+
+            if (excluded)
+                document.ExcludedPurchaseKeys.Add(key);
+            else
+                document.ExcludedPurchaseKeys.RemoveAll(x => string.Equals(x, key, StringComparison.Ordinal));
+
+            document.Version = Math.Max(document.Version, 2);
+            dirty = true;
+        }
+
+        if (flush)
+            Flush();
+        return true;
+    }
+
     public void Flush()
     {
         string json;
@@ -107,7 +203,9 @@ public sealed class TraderStore
 
     public sealed class TraderDocument
     {
-        public int Version { get; set; } = 1;
+        public int Version { get; set; } = 2;
         public List<PersonalPurchase> Purchases { get; set; } = new();
+        public List<GilFlowEntry> GilFlows { get; set; } = new();
+        public List<string> ExcludedPurchaseKeys { get; set; } = new();
     }
 }

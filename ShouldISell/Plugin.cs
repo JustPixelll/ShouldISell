@@ -19,6 +19,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IClientState ClientState { get; private set; } = null!;
     [PluginService] internal static IPlayerState PlayerState { get; private set; } = null!;
+    [PluginService] internal static IGameInventory GameInventory { get; private set; } = null!;
     [PluginService] internal static IMarketBoard MarketBoard { get; private set; } = null!;
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
     [PluginService] internal static IGameInteropProvider GameInterop { get; private set; } = null!;
@@ -29,6 +30,7 @@ public sealed class Plugin : IDalamudPlugin
     public Configuration Configuration { get; }
     public LocalStore Store { get; }
     public TraderStore TraderStore { get; }
+    public GilLedgerTracker GilLedger { get; }
     public GameItemCatalog Catalog { get; }
     public InventoryScanner Inventory { get; }
     public UniversalisClient Universalis { get; }
@@ -55,6 +57,7 @@ public sealed class Plugin : IDalamudPlugin
         Configuration.MigrateIfNeeded();
         Store = new LocalStore(PluginInterface, Log);
         TraderStore = new TraderStore(PluginInterface, Log);
+        GilLedger = new GilLedgerTracker(GameInventory, PlayerState, TraderStore, Log);
         Catalog = new GameItemCatalog(DataManager);
         Inventory = new InventoryScanner(PlayerState, Catalog, Store, Log);
         Universalis = new UniversalisClient(Log);
@@ -124,6 +127,7 @@ public sealed class Plugin : IDalamudPlugin
             return;
 
         nextPassiveScan = DateTimeOffset.UtcNow.AddSeconds(2);
+        GilLedger.Capture();
         Inventory.ScanLoadedContainers();
         ListingHistory.Capture();
     }

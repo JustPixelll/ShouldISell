@@ -21,6 +21,12 @@ public sealed record ListingTraceEvent(
     uint? PreviousUnitPrice = null,
     int? PreviousQuantity = null);
 
+public sealed record ListingTraceTiming(
+    DateTimeOffset FirstSeenUtc,
+    DateTimeOffset PriceSinceUtc,
+    DateTimeOffset QuantitySinceUtc,
+    DateTimeOffset StateSinceUtc);
+
 public sealed class ListingTraceLifecycle
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -213,6 +219,35 @@ public sealed class ListingHistoryTracker : IDisposable
                 .Where(x => x.CharacterContentId == characterContentId)
                 .Select(Clone)
                 .ToList();
+    }
+
+    public ListingTraceTiming? GetTiming(ulong characterContentId, OwnMarketListing listing)
+    {
+        lock (gate)
+        {
+            var lifecycle = document.Lifecycles
+                .Where(x => x.CharacterContentId == characterContentId && x.IsActive)
+                .FirstOrDefault(x =>
+                    x.RetainerId == listing.RetainerId &&
+                    x.LastMarketSlot == listing.MarketSlot &&
+                    x.ItemId == listing.ItemId &&
+                    x.IsHq == listing.IsHq);
+            if (lifecycle is null)
+                return null;
+
+            var priceSince = lifecycle.Events
+                .Where(x => x.Kind == ListingTraceEventKind.Listed || x.Kind == ListingTraceEventKind.PriceChanged)
+                .Select(x => x.AtUtc)
+                .DefaultIfEmpty(lifecycle.FirstSeenUtc)
+                .Max();
+            var quantitySince = lifecycle.Events
+                .Where(x => x.Kind == ListingTraceEventKind.Listed || x.Kind == ListingTraceEventKind.QuantityChanged)
+                .Select(x => x.AtUtc)
+                .DefaultIfEmpty(lifecycle.FirstSeenUtc)
+                .Max();
+            var stateSince = priceSince > quantitySince ? priceSince : quantitySince;
+            return new ListingTraceTiming(lifecycle.FirstSeenUtc, priceSince, quantitySince, stateSince);
+        }
     }
 
     public void Flush()
