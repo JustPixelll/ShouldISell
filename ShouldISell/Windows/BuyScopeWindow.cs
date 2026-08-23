@@ -30,28 +30,27 @@ public sealed class BuyScopeWindow : Window, IDisposable
         var cfg = plugin.Configuration;
         var categories = plugin.Catalog.GetMarketSearchCategories();
         var selected = cfg.BuyEnabledSearchCategoryIds?.ToHashSet() ?? new HashSet<uint>();
-        var allMode = selected.Count == 0;
+        var allMode = cfg.BuyUseAllSearchCategories;
 
-        ImGui.TextWrapped("Choose which FFXIV Market Board search categories Should I Buy? is allowed to scan. Leaving the selection empty means ALL marketable categories. The filter is applied before the Universalis aggregate discovery pass, so a narrow scope also reduces scan traffic and work.");
+        ImGui.TextWrapped("Choose which FFXIV Market Board search categories Should I Buy? is allowed to scan. The filter is applied before the Universalis aggregate discovery pass, so a narrow scope also reduces scan traffic and work.");
         ImGui.Separator();
 
         if (ImGui.Button("All categories"))
         {
+            cfg.BuyUseAllSearchCategories = true;
             cfg.BuyEnabledSearchCategoryIds = new List<uint>();
             cfg.Save();
             selected.Clear();
             allMode = true;
         }
         ImGui.SameLine();
-        if (ImGui.Button("Select none"))
+        if (ImGui.Button("Custom: select none"))
         {
-            // A literal empty list means "all", so represent an intentionally empty scan by
-            // selecting no known category is not useful. Instead this button clears visible checks
-            // and explains the all-mode semantic below. Users can then choose the categories wanted.
+            cfg.BuyUseAllSearchCategories = false;
             cfg.BuyEnabledSearchCategoryIds = new List<uint>();
             cfg.Save();
             selected.Clear();
-            allMode = true;
+            allMode = false;
         }
         ImGui.SameLine();
         ImGui.TextDisabled(allMode ? "Current scope: ALL" : $"Current scope: {selected.Count:N0} categories");
@@ -72,8 +71,10 @@ public sealed class BuyScopeWindow : Window, IDisposable
 
             if (allMode)
             {
-                // Switching one category off while in all-mode materializes every other category.
+                // Unchecking one category while in all-mode materializes every other category,
+                // then switches to a normal custom selection.
                 selected = categories.Select(x => x.Id).ToHashSet();
+                cfg.BuyUseAllSearchCategories = false;
                 allMode = false;
             }
 
@@ -82,18 +83,27 @@ public sealed class BuyScopeWindow : Window, IDisposable
             else
                 selected.Remove(category.Id);
 
-            // If the user ends up selecting every category again, normalize back to the compact
-            // empty-list representation for "all".
-            cfg.BuyEnabledSearchCategoryIds = selected.Count == categories.Count
-                ? new List<uint>()
-                : selected.Order().ToList();
+            if (selected.Count == categories.Count && categories.Count > 0)
+            {
+                cfg.BuyUseAllSearchCategories = true;
+                cfg.BuyEnabledSearchCategoryIds = new List<uint>();
+                selected.Clear();
+                allMode = true;
+            }
+            else
+            {
+                cfg.BuyUseAllSearchCategories = false;
+                cfg.BuyEnabledSearchCategoryIds = selected.Order().ToList();
+            }
             cfg.Save();
         }
         ImGui.EndChild();
 
-        if (cfg.BuyEnabledSearchCategoryIds.Count == 0)
-            ImGui.TextWrapped("All marketable categories will be scanned. Uncheck any category to switch into a custom scope.");
+        if (allMode)
+            ImGui.TextWrapped($"All {categories.Count:N0} Market Board categories are eligible. Uncheck any category to switch into a custom scope.");
+        else if (selected.Count == 0)
+            ImGui.TextWrapped("Custom scope is empty: the next scan will intentionally return no candidates until you select at least one category.");
         else
-            ImGui.TextWrapped($"Custom scope active: {cfg.BuyEnabledSearchCategoryIds.Count:N0} of {categories.Count:N0} Market Board categories. Run /buycheck scan to use the new scope.");
+            ImGui.TextWrapped($"Custom scope active: {selected.Count:N0} of {categories.Count:N0} Market Board categories. Run /buycheck scan to use the new scope.");
     }
 }
