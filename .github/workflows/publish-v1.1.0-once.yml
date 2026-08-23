@@ -1,0 +1,45 @@
+name: Publish Should I v1.1.0 once
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: startsWith(github.event.head_commit.message, 'chore: publish Should I v1.1.0')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create v1.1.0 release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v1.1.0 already exists; nothing to create."
+            exit 0
+          fi
+          cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
+          # Should I? v1.1.0
+
+          The first unified **Should I?** release.
+
+          ## Should I Sell?
+          The existing selling analysis, live refresh, stack guidance, current-listing audit, vendor economics, and personal sales history remain available.
+
+          ## Should I Buy?
+          Adds budget-aware opportunity scanning with Universalis discovery, deep listing/history analysis, market-to-market flips, vendor-to-market and market-to-vendor opportunities, split/consolidate detection, risk-adjusted scoring, holding-time estimates, portfolio allocation, and LIVE VERIFY against fresh FFXIV Market Board data.
+
+          ## Should I Tycoon?
+          Adds confirmed Market Board purchase capture, FIFO cost basis, realized and unrealized trading analytics, item/strategy performance, trader-profile analysis, and prediction-vs-reality calibration.
+
+          This is being promoted directly for live testing. The plugin remains read-only for recommendations and never automatically purchases Market Board listings.
+          EOF
+          gh release create v1.1.0 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Should I? v1.1.0" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
