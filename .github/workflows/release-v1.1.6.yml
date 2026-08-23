@@ -1,0 +1,61 @@
+name: Publish Should I v1.1.6 once
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.event.head_commit.message == 'PUBLISH-V1.1.6'
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download Dalamud development files
+        shell: pwsh
+        run: |
+          $destination = "$env:AppData\XIVLauncher\addon\Hooks\dev"
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Invoke-WebRequest -Uri "https://goatcorp.github.io/dalamud-distrib/latest.zip" -OutFile "$env:RUNNER_TEMP\dalamud.zip"
+          Expand-Archive -Force "$env:RUNNER_TEMP\dalamud.zip" $destination
+
+      - name: Restore
+        run: dotnet restore .\ShouldISell\ShouldISell.csproj
+
+      - name: Build Release
+        run: dotnet build .\ShouldISell\ShouldISell.csproj --configuration Release --no-restore
+
+      - name: Find packaged plugin
+        id: package
+        shell: pwsh
+        run: |
+          $package = Get-ChildItem -Path ".\ShouldISell\bin" -Filter "latest.zip" -Recurse | Select-Object -First 1
+          if (-not $package) { throw "DalamudPackager did not create latest.zip" }
+          "path=$($package.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Create v1.1.6 release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.1.6
+          name: Should I? v1.1.6
+          target_commitish: main
+          files: ${{ steps.package.outputs.path }}
+          body: |
+            Should I? v1.1.6 adds a vendor-supply safety rule to Should I Buy?.
+
+            - NQ items sold by normal gil NPC vendors are excluded from Market → Market buyouts, undercut sweeps, split and consolidate strategies.
+            - Broad discovery ignores fake buyout scarcity for renewable vendor supply.
+            - Deep Market → Market analysis independently blocks the same class as defense in depth.
+            - Vendor → Market remains valid but is limited to one working listing, maximum 99 units.
+            - HQ remains eligible because normal gil vendors do not replenish HQ stock.
+            - Market → Vendor remains available when guaranteed NPC buyback economics are valid.
+            - Buy UI tooltips explain the distinction.
