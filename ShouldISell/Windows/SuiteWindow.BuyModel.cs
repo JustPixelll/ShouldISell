@@ -1,3 +1,5 @@
+using ShouldISell.Services;
+
 namespace ShouldISell.Windows;
 
 public sealed partial class SuiteWindow
@@ -109,7 +111,7 @@ public sealed partial class SuiteWindow
         if (hasOwnListing)
             return null;
 
-        var targetStack = Math.Max(1, opportunity.SuggestedExitStackSize);
+        var targetStack = Math.Min(MarketBoardRules.MaxListingQuantity, Math.Max(1, opportunity.SuggestedExitStackSize));
         if (currentOwned >= targetStack)
             return null;
 
@@ -143,6 +145,7 @@ public sealed partial class SuiteWindow
             PotentialProfit = potentialProfit,
             RiskAdjustedProfit = Math.Max(0, opportunity.RiskAdjustedProfit * ratio),
             Roi = roi,
+            SuggestedExitStackSize = targetStack,
             SuggestedExitListingCount = cycles,
             Notes = notes,
         };
@@ -172,12 +175,12 @@ public sealed partial class SuiteWindow
 
         if (opportunity.Kind == BuyOpportunityKind.MarketToVendor)
         {
-            var notes = opportunity.Notes.ToList();
-            notes.Add($"Native FFXIV Deep Scan at {liveAt.ToLocalTime():HH:mm:ss} confirmed the acquisition listing(s) for this guaranteed vendor exit.");
+            var verificationNotes = opportunity.Notes.ToList();
+            verificationNotes.Add($"Native FFXIV Deep Scan at {liveAt.ToLocalTime():HH:mm:ss} confirmed the acquisition listing(s) for this guaranteed vendor exit.");
             return opportunity with
             {
                 MarketFreshnessUtc = liveAt,
-                Notes = notes,
+                Notes = verificationNotes,
                 AnalysedAtUtc = liveAt,
             };
         }
@@ -214,7 +217,9 @@ public sealed partial class SuiteWindow
 
         var potentialProfit = netExit * (double)opportunity.AcquireQuantity - opportunity.AcquisitionCost;
         var roi = opportunity.AcquisitionCost > 0 ? potentialProfit / opportunity.AcquisitionCost : 0;
-        var stackSize = Math.Max(1, rating.StackRecommendation?.RecommendedStackSize ?? opportunity.SuggestedExitStackSize);
+        var stackSize = Math.Min(
+            MarketBoardRules.MaxListingQuantity,
+            Math.Max(1, rating.StackRecommendation?.RecommendedStackSize ?? opportunity.SuggestedExitStackSize));
         var exitCycles = DivideRoundUpBuy(resultingPosition, stackSize);
         var liquidationDays = EstimateNativeSequentialLiquidation(rating, resultingPosition, stackSize);
         var maxHolding = Math.Max(0.25, plugin.Configuration.BuyMaximumHoldingDays);
@@ -300,6 +305,7 @@ public sealed partial class SuiteWindow
         if (opportunity.Kind == BuyOpportunityKind.MarketToVendor)
             return opportunity;
 
+        var listingStack = Math.Min(MarketBoardRules.MaxListingQuantity, Math.Max(1, opportunity.SuggestedExitStackSize));
         var recovery = OneListingCapitalRecovery(opportunity);
         var cycles = SequentialListingCycles(opportunity);
         var recoveryCap = recovery switch
@@ -326,13 +332,14 @@ public sealed partial class SuiteWindow
         var adjustedRiskProfit = opportunity.RiskAdjustedProfit * deploymentFactor * cycleFactor;
 
         var notes = opportunity.Notes.ToList();
-        notes.Add($"v1.1.5 one-listing execution model: one active {Math.Max(1, opportunity.SuggestedExitStackSize):N0}-unit listing exposes about {OneListingNetRevenue(opportunity):N0}g net, recovering {recovery:P1} of the {opportunity.AcquisitionCost:N0}g new capital per sale; the resulting position needs about {cycles:N0} sequential listing cycle(s). Base score {opportunity.OpportunityScore:0.0} → displayed score {score:0.0} after the one-listing capital/cycle ceilings.");
+        notes.Add($"v1.1.5 one-listing execution model: one active {listingStack:N0}-unit listing exposes about {OneListingNetRevenue(opportunity):N0}g net, recovering {recovery:P1} of the {opportunity.AcquisitionCost:N0}g new capital per sale; the resulting position needs about {cycles:N0} sequential listing cycle(s). Base score {opportunity.OpportunityScore:0.0} → displayed score {score:0.0} after the one-listing capital/cycle ceilings.");
 
         return opportunity with
         {
             Stars = BuyStars(score),
             OpportunityScore = score,
             RiskAdjustedProfit = adjustedRiskProfit,
+            SuggestedExitStackSize = listingStack,
             SuggestedExitListingCount = cycles,
             Notes = notes,
         };
@@ -362,7 +369,10 @@ public sealed partial class SuiteWindow
     }
 
     private static int OneListingUnits(BuyOpportunity opportunity)
-        => Math.Max(1, Math.Min(opportunity.AcquireQuantity, Math.Max(1, opportunity.SuggestedExitStackSize)));
+    {
+        var stack = Math.Min(MarketBoardRules.MaxListingQuantity, Math.Max(1, opportunity.SuggestedExitStackSize));
+        return Math.Max(1, Math.Min(opportunity.AcquireQuantity, stack));
+    }
 
     private static double OneListingNetRevenue(BuyOpportunity opportunity)
         => opportunity.NetExitUnitPrice is { } net
@@ -376,18 +386,18 @@ public sealed partial class SuiteWindow
 
     private static int SequentialListingCycles(BuyOpportunity opportunity)
     {
-        var stack = Math.Max(1, opportunity.SuggestedExitStackSize);
         var position = Math.Max(1, opportunity.ExistingQuantity + opportunity.AcquireQuantity);
-        return DivideRoundUpBuy(position, stack);
+        return MarketBoardRules.ListingCycles(position, opportunity.SuggestedExitStackSize);
     }
 
     private static double? EstimateNativeSequentialLiquidation(SellRating rating, int position, int stackSize)
     {
         if (rating.UnitsPerDay <= 0.01)
             return null;
+        stackSize = Math.Min(MarketBoardRules.MaxListingQuantity, Math.Max(1, stackSize));
         var effectiveUnitsPerDay = rating.UnitsPerDay;
         if (rating.TransactionsPerDay > 0.001)
-            effectiveUnitsPerDay = Math.Min(effectiveUnitsPerDay, rating.TransactionsPerDay * Math.Max(1, stackSize));
+            effectiveUnitsPerDay = Math.Min(effectiveUnitsPerDay, rating.TransactionsPerDay * stackSize);
         if (effectiveUnitsPerDay <= 0.01)
             return null;
         return Math.Max(0, rating.EstimatedQueueDays ?? 0) + position / effectiveUnitsPerDay;
