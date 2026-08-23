@@ -276,7 +276,9 @@ public sealed class ScoreCalculator
             listings, priceSales, weightedMedian, q1, q3, med7, med30, unitsPerDay, daysSupply,
             quantityForSale, now, notes);
 
-        var stackLimit = (int)Math.Clamp(itemStackSize == 0 ? 999u : itemStackSize, 1u, (uint)int.MaxValue);
+        var stackLimit = Math.Min(
+            MarketBoardRules.MaxListingQuantity,
+            (int)Math.Clamp(itemStackSize == 0 ? (uint)MarketBoardRules.MaxListingQuantity : itemStackSize, 1u, (uint)int.MaxValue));
         var maxCandidate = Math.Max(1, Math.Min(quantityForSale, stackLimit));
 
         if (stackSales.Count == 0)
@@ -896,13 +898,14 @@ public sealed class ScoreCalculator
         uint itemStackSize)
     {
         var owned = Math.Max(1, quantityForSale);
+        var maxListable = Math.Min(owned, MarketBoardRules.MaxListingQuantity);
         if (recommendation is { RecommendedStackSize: > 0 })
-            return Math.Clamp(recommendation.RecommendedStackSize, 1, owned);
+            return Math.Clamp(recommendation.RecommendedStackSize, 1, maxListable);
 
         var stackLimit = itemStackSize == 0
-            ? owned
-            : (int)Math.Min((uint)owned, itemStackSize);
-        return Math.Max(1, stackLimit);
+            ? maxListable
+            : (int)Math.Min((uint)maxListable, itemStackSize);
+        return Math.Max(1, Math.Min(stackLimit, MarketBoardRules.MaxListingQuantity));
     }
 
     public static double ScoreAbsoluteValue(double? expectedNetValue, int valueReferenceGil)
@@ -982,3 +985,5 @@ public sealed class ScoreCalculator
         _ => "Very low",
     };
 }
+
+

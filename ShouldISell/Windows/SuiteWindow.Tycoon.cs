@@ -9,12 +9,13 @@ public sealed partial class SuiteWindow
     private void DrawTycoonModule()
     {
         var snapshot = plugin.TraderAnalyzer.GetSnapshot();
-        ImGui.TextWrapped("Tycoon joins real Market Board purchases with Should I Sell?'s captured retainer sales. Cost basis is FIFO per item/HQ variant, so realized profit, holding time, open positions and prediction accuracy come from your own trading history rather than generic market statistics.");
+        ImGui.TextWrapped("Tycoon combines real Market Board purchases with every captured retainer sale. P&L remains FIFO and only uses known purchase cost basis, while Sales Insights also learns from gathered, crafted, dropped, gifted and pre-tracking stock. Listing Insights studies your own traceable listing lifecycle: repricing, stack-size changes, relists and time-to-sale.");
         ImGui.Spacing();
 
         DrawTraderProfile(snapshot);
         ImGui.Separator();
         DrawTraderMetrics(snapshot);
+        DrawTycoonInsightSummary(snapshot);
         ImGui.Separator();
 
         if (ImGui.BeginTabBar("##tycoon-tabs"))
@@ -37,6 +38,16 @@ public sealed partial class SuiteWindow
             if (ImGui.BeginTabItem("Strategies"))
             {
                 DrawTraderStrategies(snapshot);
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Sales Insights"))
+            {
+                DrawTycoonSalesInsights();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Listing Insights"))
+            {
+                DrawTycoonListingInsights();
                 ImGui.EndTabItem();
             }
             if (ImGui.BeginTabItem("Model Accuracy"))
