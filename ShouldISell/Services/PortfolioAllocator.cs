@@ -72,12 +72,22 @@ public static class PortfolioAllocator
             {
                 choice[groupIndex, cap] = -1;
                 previousCapacity[groupIndex, cap] = cap;
+            }
+
+            for (var cap = 0; cap <= capacity; cap++)
+            {
                 if (double.IsNegativeInfinity(previous[cap]))
                     continue;
 
-                // Choose nothing from this exposure group.
+                // Choose nothing from this exposure group. If this carry-forward state beats a
+                // candidate that reached the same bucket earlier, its reconstruction metadata must
+                // also become "no selection" rather than retaining the stale candidate choice.
                 if (previous[cap] > next[cap])
+                {
                     next[cap] = previous[cap];
+                    choice[groupIndex, cap] = -1;
+                    previousCapacity[groupIndex, cap] = cap;
+                }
 
                 var alternatives = groups[groupIndex];
                 for (var alternativeIndex = 0; alternativeIndex < alternatives.Count; alternativeIndex++)
