@@ -8,17 +8,34 @@ public sealed partial class SuiteWindow
     {
         ImGui.Spacing();
         ImGui.TextUnformatted("Live verification");
+        ImGui.TextDisabled("Single-item FFXIV check only. This does not restart the broad Universalis discovery pass.");
+
+        var currentWorldId = CurrentBuyWorldId;
+        if (currentWorldId == 0)
+        {
+            ImGui.TextDisabled("Player/world state is not loaded, so live verification is unavailable.");
+            return;
+        }
+
+        if (opportunity.WorldId != currentWorldId)
+        {
+            ImGui.TextWrapped($"WORLD CHANGED — this recommendation belongs to {plugin.Catalog.GetWorldName(opportunity.WorldId)}, but you are currently on {CurrentBuyWorldName}. Rerun discovery on the current world before verifying or buying it.");
+            return;
+        }
+
+        if (!plugin.SellScanContext.IsMarketUiVisible())
+            ImGui.TextWrapped("For the most reliable native request, open the Market Board search/results window or a retainer market window before pressing LIVE VERIFY. The request can still be attempted, but FFXIV may refuse it when the market UI/proxy is not ready.");
 
         var refresh = plugin.RefreshEngine;
         var thisItemRunning = refresh.IsRunning && refresh.Current?.ItemId == opportunity.Item.ItemId;
         if (refresh.IsRunning)
             ImGui.BeginDisabled();
-        if (ImGui.Button($"LIVE VERIFY##buy-live-{opportunity.Item.ItemId}-{opportunity.IsHq}"))
+        if (ImGui.Button($"LIVE VERIFY THIS ITEM ONLY##buy-live-{opportunity.Item.ItemId}-{opportunity.IsHq}"))
             refresh.StartForItem(opportunity.Item.ItemId, $"live verification for {opportunity.Item.Name}");
         if (refresh.IsRunning)
             ImGui.EndDisabled();
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Asks FFXIV itself for a fresh Market Board observation of this item. This never buys anything.");
+            ImGui.SetTooltip($"Ask FFXIV itself for one fresh Market Board observation of {opportunity.Item.Name} on {CurrentBuyWorldName}. No broad Universalis scan is started and nothing is purchased.");
 
         if (thisItemRunning)
         {
@@ -31,20 +48,20 @@ public sealed partial class SuiteWindow
             ImGui.TextDisabled($"Another live refresh is active: {refresh.Status}");
         }
 
-        var live = plugin.Store.GetMarket(opportunity.WorldId, opportunity.Item.ItemId);
+        var live = plugin.Store.GetMarket(currentWorldId, opportunity.Item.ItemId);
         var liveAt = live?.CurrentSource == MarketDataSource.LiveGame ? live.ListingObservedAtUtc : null;
         if (liveAt is null)
         {
-            ImGui.TextDisabled("No FFXIV-live listing snapshot is stored for this opportunity yet.");
+            ImGui.TextDisabled($"No FFXIV-live listing snapshot is stored for {CurrentBuyWorldName} yet.");
             return;
         }
 
         var age = DateTimeOffset.UtcNow - liveAt.Value;
-        ImGui.TextDisabled($"Latest FFXIV-live board observation: {liveAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss} ({FormatAge(age)} ago).");
+        ImGui.TextDisabled($"Latest FFXIV-live board observation on {CurrentBuyWorldName}: {liveAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss} ({FormatAge(age)} ago).");
 
         if (liveAt.Value < opportunity.AnalysedAtUtc)
         {
-            ImGui.TextDisabled("That live snapshot predates this scanner result. Press LIVE VERIFY before relying on it for this trade.");
+            ImGui.TextDisabled("That live snapshot predates this recommendation. Press LIVE VERIFY before relying on it for this trade.");
             return;
         }
 
@@ -69,22 +86,22 @@ public sealed partial class SuiteWindow
 
             if (matched == opportunity.AcquisitionLots.Count)
             {
-                ImGui.TextUnformatted($"LIVE VERIFIED — all {matched:N0} recommended acquisition listing(s) are still present at the scanned price and quantity.");
+                ImGui.TextUnformatted($"LIVE VERIFIED — all {matched:N0} recommended acquisition listing(s) are still present on {CurrentBuyWorldName} at the scanned price and quantity.");
             }
             else
             {
-                ImGui.TextWrapped($"MARKET CHANGED — only {matched:N0} of {opportunity.AcquisitionLots.Count:N0} recommended acquisition listing(s) still match exactly. Rerun the Buy scan before committing gil; the previous package economics may no longer be valid.");
+                ImGui.TextWrapped($"MARKET CHANGED — only {matched:N0} of {opportunity.AcquisitionLots.Count:N0} recommended acquisition listing(s) still match exactly on {CurrentBuyWorldName}. Rerun discovery before committing gil; the previous package economics may no longer be valid.");
             }
         }
         else
         {
             var lowest = liveVariantListings.FirstOrDefault();
             if (lowest is not null)
-                ImGui.TextUnformatted($"Exit market refreshed live. Current lowest matching ask: {lowest.PricePerUnit:N0}g/unit ({lowest.Quantity:N0} unit(s)).");
+                ImGui.TextUnformatted($"Exit market refreshed live on {CurrentBuyWorldName}. Current lowest matching ask: {lowest.PricePerUnit:N0}g/unit ({lowest.Quantity:N0} unit(s)).");
             else
                 ImGui.TextDisabled("Exit market refreshed live, but no matching current listing is visible.");
 
-            ImGui.TextDisabled("Vendor → Market has no acquisition listing to verify; the live check validates the exit-side board. Rerun the scanner if the refreshed market materially differs from the recommendation.");
+            ImGui.TextDisabled("Vendor → Market has no acquisition listing to verify; the live check validates the exit-side board. Rerun discovery if the refreshed market materially differs from the recommendation.");
         }
     }
 

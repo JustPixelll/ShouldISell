@@ -76,6 +76,31 @@ public sealed partial class SuiteWindow : Window, IDisposable
         ImGui.EndTabItem();
     }
 
+    private uint CurrentBuyWorldId
+        => Plugin.PlayerState.IsLoaded ? Plugin.PlayerState.CurrentWorld.RowId : 0;
+
+    private string CurrentBuyWorldName
+        => CurrentBuyWorldId == 0 ? "Unknown world" : plugin.Catalog.GetWorldName(CurrentBuyWorldId);
+
+    private IReadOnlyList<BuyOpportunity> GetCurrentWorldBuyOpportunities()
+    {
+        var worldId = CurrentBuyWorldId;
+        if (worldId == 0)
+            return Array.Empty<BuyOpportunity>();
+        return plugin.BuyScanner.GetOpportunities()
+            .Where(x => x.WorldId == worldId)
+            .ToList();
+    }
+
+    private static void ItemNameContextMenu(string popupId, string itemName)
+    {
+        if (!ImGui.BeginPopupContextItem(popupId))
+            return;
+        if (ImGui.MenuItem("Copy item name"))
+            ImGui.SetClipboardText(itemName);
+        ImGui.EndPopup();
+    }
+
     private static string Stars(int stars)
         => new string('★', Math.Clamp(stars, 1, 5)) + new string('☆', 5 - Math.Clamp(stars, 1, 5));
 

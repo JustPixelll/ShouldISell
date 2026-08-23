@@ -24,6 +24,14 @@ public sealed partial class SuiteWindow
 {
     private void DrawBuyModule()
     {
+        var currentWorldId = CurrentBuyWorldId;
+        if (buyDetailsOpen && selectedBuyOpportunity is { } staleSelected && staleSelected.WorldId != currentWorldId)
+        {
+            selectedBuyOpportunity = null;
+            buyDetailsOpen = false;
+            buyPortfolioPlan = null;
+        }
+
         if (buyDetailsOpen && selectedBuyOpportunity is { } selected)
         {
             DrawBuyDetailPage(selected);
@@ -31,6 +39,13 @@ public sealed partial class SuiteWindow
         }
 
         ImGui.TextWrapped("Scan a configurable slice of the market for executable purchases within your budget. Discovery is cheap and broad; only promising items get full listings + history and a counterfactual Should I Sell? exit simulation.");
+        if (currentWorldId != 0)
+        {
+            ImGui.TextDisabled($"Current-world scope: {CurrentBuyWorldName}. Recommendations from other worlds are hidden and cannot be live-verified here.");
+            var hiddenOtherWorld = plugin.BuyScanner.GetOpportunities().Count(x => x.WorldId != currentWorldId);
+            if (hiddenOtherWorld > 0)
+                ImGui.TextWrapped($"{hiddenOtherWorld:N0} cached recommendation(s) belong to another world and are hidden. Rerun discovery on {CurrentBuyWorldName} to replace them. Cross-world trading will be a separate explicit opt-in mode rather than being mixed into normal results.");
+        }
         ImGui.Spacing();
 
         DrawBuyControls();
@@ -101,12 +116,12 @@ public sealed partial class SuiteWindow
 
             var deepLimit = c.BuyDeepCandidateLimit;
             ImGui.SetNextItemWidth(150 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputInt("Deep-analysis item limit", ref deepLimit, 10, 50))
+            if (ImGui.InputInt("Detailed Universalis item limit", ref deepLimit, 10, 50))
             {
                 c.BuyDeepCandidateLimit = Math.Clamp(deepLimit, 20, 500);
                 c.Save();
             }
-            Tooltip("The broad aggregated pass still checks every scoped marketable item. This caps how many strongest item IDs receive full current listings plus 90-day history.");
+            Tooltip("After discovery, only this many strongest item IDs receive detailed Universalis current listings plus 90-day history. This is still Universalis data; the separate LIVE VERIFY action is the one-item native FFXIV check.");
 
             ImGui.Spacing();
             var marketFlip = c.BuyEnableMarketToMarket;
@@ -160,14 +175,14 @@ public sealed partial class SuiteWindow
         ImGui.Spacing();
         if (!plugin.BuyScanner.IsScanning)
         {
-            if (ImGui.Button("SCAN FOR GOOD BUYS"))
+            if (ImGui.Button("DISCOVER GOOD BUYS (UNIVERSALIS)"))
             {
                 selectedBuyOpportunity = null;
                 buyDetailsOpen = false;
                 buyPortfolioPlan = null;
                 _ = plugin.BuyScanner.ScanAsync();
             }
-            Tooltip("Run a new broad Universalis discovery pass and then deep-analyze the strongest candidates with current listings and 90-day sales history.");
+            Tooltip("This is the only action that starts the broad market-universe pass. It then uses detailed Universalis listings/history for the strongest candidates. LIVE VERIFY on an item is separate and never starts this broad pass.");
         }
         else if (ImGui.Button("Stop scan"))
         {
@@ -187,7 +202,7 @@ public sealed partial class SuiteWindow
             else if (plugin.BuyScanner.DeepItemsTotal > 0)
             {
                 var fraction = plugin.BuyScanner.DeepItemsScanned / (float)Math.Max(1, plugin.BuyScanner.DeepItemsTotal);
-                ImGui.ProgressBar(fraction, new Vector2(-1, 0), $"Deep analysis {plugin.BuyScanner.DeepItemsScanned:N0}/{plugin.BuyScanner.DeepItemsTotal:N0}");
+                ImGui.ProgressBar(fraction, new Vector2(-1, 0), $"Detailed Universalis {plugin.BuyScanner.DeepItemsScanned:N0}/{plugin.BuyScanner.DeepItemsTotal:N0}");
             }
         }
     }
@@ -236,9 +251,12 @@ public sealed partial class SuiteWindow
 
     private void DrawBuyPortfolio()
     {
-        var opportunities = plugin.BuyScanner.GetOpportunities();
+        var opportunities = GetCurrentWorldBuyOpportunities();
         if (opportunities.Count == 0 || plugin.BuyScanner.IsScanning)
             return;
+
+        if (buyPortfolioPlan is { } oldPlan && oldPlan.Selections.Any(x => x.WorldId != CurrentBuyWorldId))
+            buyPortfolioPlan = null;
 
         var c = plugin.Configuration;
         ImGui.Spacing();
@@ -325,7 +343,9 @@ public sealed partial class SuiteWindow
             buyDetailsOpen = true;
         }
         Tooltip("Click anywhere on this highlighted row to open the full opportunity analysis.");
-        ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted(row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty));
+                ImGui.TableSetColumnIndex(1);
+        ImGui.TextUnformatted(row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty));
+        ItemNameContextMenu($"##copy-buy-name-{row.Item.ItemId}-{row.IsHq}-{row.Kind}-{row.AcquisitionCost}", row.Item.Name);
         ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted(row.StrategyLabel);
         ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted(row.AcquireQuantity.ToString("N0"));
         ImGui.TableSetColumnIndex(4); ImGui.TextUnformatted(Gil(row.AcquisitionCost));
@@ -341,7 +361,7 @@ public sealed partial class SuiteWindow
         ImGui.InputTextWithHint("##buy-result-search", "Search opportunity item...", ref buySearch, 128);
         Tooltip("Filter the current scan results by item name. Sorting and the underlying scan results are not changed.");
 
-        var filtered = plugin.BuyScanner.GetOpportunities()
+        var filtered = GetCurrentWorldBuyOpportunities()
             .Where(x => string.IsNullOrWhiteSpace(buySearch) || x.Item.Name.Contains(buySearch, StringComparison.CurrentCultureIgnoreCase));
         var rows = SortBuyRows(filtered);
 
@@ -399,7 +419,9 @@ public sealed partial class SuiteWindow
         }
         Tooltip($"Click anywhere on this row for details.\nConfidence: {row.Confidence:P0}\nRecent sales: {row.SalesSampleCount:N0}\nVelocity: {row.UnitsPerDay:0.##}/day");
 
-        ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted(row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty));
+                ImGui.TableSetColumnIndex(1);
+        ImGui.TextUnformatted(row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty));
+        ItemNameContextMenu($"##copy-buy-name-{row.Item.ItemId}-{row.IsHq}-{row.Kind}-{row.AcquisitionCost}", row.Item.Name);
         ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted(row.StrategyLabel);
         ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted(row.AcquireQuantity.ToString("N0"));
         ImGui.TableSetColumnIndex(4); ImGui.TextUnformatted(Gil(row.AcquisitionCost));
@@ -476,6 +498,8 @@ public sealed partial class SuiteWindow
         ImGui.Separator();
 
         ImGui.TextUnformatted($"{opportunity.Item.Name}{(opportunity.IsHq ? " [HQ]" : string.Empty)}");
+        ItemNameContextMenu($"##copy-detail-name-{opportunity.Item.ItemId}-{opportunity.IsHq}", opportunity.Item.Name);
+        ImGui.TextDisabled($"Market world: {plugin.Catalog.GetWorldName(opportunity.WorldId)} (world ID {opportunity.WorldId})");
         ImGui.TextUnformatted($"{Stars(opportunity.Stars)}  {opportunity.OpportunityScore:0.0}/100  ·  {opportunity.StrategyLabel}");
         ImGui.TextWrapped($"Acquire {opportunity.AcquireQuantity:N0} new unit(s) for about {opportunity.AcquisitionCost:N0}g. The modeled exit targets {opportunity.SuggestedExitStackSize:N0}-unit listing(s) around {(opportunity.SuggestedExitUnitPrice is { } p ? p.ToString("N0") + "g/unit" : "the calculated exit value")}.");
 
@@ -604,3 +628,13 @@ public sealed partial class SuiteWindow
         return $"{age.TotalDays:0.#}d";
     }
 }
+
+
+
+
+
+
+
+
+
+

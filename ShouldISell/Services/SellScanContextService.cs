@@ -35,10 +35,21 @@ public sealed unsafe class SellScanContextService
         "RetainerCrystalGrid",
     ];
 
+    private static readonly string[] MarketBoardAddons =
+    [
+        "ItemSearch",
+        "ItemSearchResult",
+        "ItemSearchHistory",
+        "RetainerSellList",
+    ];
+
     public SellScanContextService(IGameGui gameGui)
     {
         this.gameGui = gameGui;
     }
+
+    public bool IsMarketUiVisible()
+        => MarketBoardAddons.Any(IsVisible) || RetainerGridAddons.Any(IsVisible);
 
     public SellScanContext Detect()
     {
