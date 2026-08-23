@@ -5,18 +5,32 @@ namespace ShouldISell;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 3;
+    public int Version { get; set; } = 4;
 
     /// <summary>
-    /// The only subjective rating input: the expected after-tax gil value of the whole known
-    /// item position the user considers meaningfully worthwhile. At exactly this value, the
-    /// absolute-value component is neutral (50%). Values one order of magnitude above/below it
-    /// are strongly rewarded/penalized on a smooth logarithmic curve.
+    /// The only subjective sell-rating input: the expected after-tax gil value of one recommended
+    /// listing the user considers meaningfully worthwhile. At exactly this value, the absolute-value
+    /// component is neutral (50%). Values one order of magnitude above/below it are strongly
+    /// rewarded/penalized on a smooth logarithmic curve.
     /// </summary>
     public int ValueThresholdGil { get; set; } = 10_000;
 
     // Kept only so old v0.1 configs deserialize cleanly and can be migrated once.
     public int ValueSetting { get; set; } = 3;
+
+    // Should I Buy? capital/risk preferences.
+    public int BuyBudgetGil { get; set; } = 500_000;
+    public int BuyMinimumProfitGil { get; set; } = 2_000;
+    public float BuyMinimumRoiPercent { get; set; } = 10f;
+    public float BuyMaximumHoldingDays { get; set; } = 7f;
+    public int BuyMaximumInvestmentPercentPerItem { get; set; } = 25;
+    public int BuyDeepCandidateLimit { get; set; } = 120;
+    public bool BuyIncludeEquipment { get; set; } = false;
+    public bool BuyUseCategoryFilter { get; set; } = false;
+    public List<uint> BuyIncludedCategoryIds { get; set; } = new();
+    public bool BuyEnableMarketToMarket { get; set; } = true;
+    public bool BuyEnableVendorToMarket { get; set; } = true;
+    public bool BuyEnableMarketToVendor { get; set; } = true;
 
     // Technical controls. These do not express a player preference about which item is "better".
     public int UniversalisCurrentTtlMinutes { get; set; } = 15;
@@ -44,12 +58,20 @@ public sealed class Configuration : IPluginConfiguration
             changed = true;
         }
 
-        // v0.7 changes the meaning from per-unit reference to expected NET value of the whole
-        // known position, but the existing gil number remains a useful personal reference and
-        // therefore does not need a numeric conversion.
+        // v0.7 changed the meaning from per-unit reference to expected NET value of a recommended
+        // listing, but the existing gil number remains a useful personal reference and therefore
+        // does not need a numeric conversion.
         if (Version < 3)
         {
             Version = 3;
+            changed = true;
+        }
+
+        // v1.1 introduces the Should I? suite and Should I Buy?. Defaults are deliberately
+        // conservative, so existing Should I Sell? installations can migrate without surprises.
+        if (Version < 4)
+        {
+            Version = 4;
             changed = true;
         }
 
