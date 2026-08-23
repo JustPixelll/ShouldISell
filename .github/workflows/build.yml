@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -16,28 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
-          fetch-depth: 0
-
-      - name: Apply guarded v2 release patch
-        if: github.event_name == 'pull_request' && github.head_ref == 'release/v2.0.0-suite'
-        shell: pwsh
-        run: |
-          if (-not (Test-Path ".github/v2_patch.py")) {
-            Write-Host "v2 patch already applied."
-            exit 0
-          }
-          python -m pip install --disable-pip-version-check pillow
-          python .github/v2_patch.py
-          # The GitHub Actions token cannot push workflow-file changes. Keep those for a separate
-          # connector commit after the code/docs/icon patch has landed.
-          git checkout HEAD -- .github/workflows/build.yml .github/workflows/release.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Release v2.0.0 suite identity and scanner fixes"
-          git push origin HEAD:${{ github.head_ref }}
 
       - name: Install .NET 10
         uses: actions/setup-dotnet@v5
