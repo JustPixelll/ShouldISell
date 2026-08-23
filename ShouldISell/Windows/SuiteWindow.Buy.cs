@@ -49,6 +49,7 @@ public sealed partial class SuiteWindow
         ImGui.Spacing();
 
         DrawBuyControls();
+        DrawBuyScreenerAndDeepScan();
         DrawBuyPortfolio();
         ImGui.Separator();
         DrawBuyResults();
@@ -251,7 +252,7 @@ public sealed partial class SuiteWindow
 
     private void DrawBuyPortfolio()
     {
-        var opportunities = GetCurrentWorldBuyOpportunities();
+        var opportunities = GetFilteredBuyOpportunities();
         if (opportunities.Count == 0 || plugin.BuyScanner.IsScanning)
             return;
 
@@ -297,7 +298,7 @@ public sealed partial class SuiteWindow
         if (ImGui.CollapsingHeader($"Recommended basket ({plan.Selections.Count:N0})##buy-portfolio-basket", ImGuiTreeNodeFlags.DefaultOpen))
         {
             var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable;
-            if (ImGui.BeginTable("##buy-portfolio-table", 9, flags))
+            if (ImGui.BeginTable("##buy-portfolio-table", 10, flags))
             {
                 ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.WidthFixed, 118 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
@@ -307,6 +308,7 @@ public sealed partial class SuiteWindow
                 ImGui.TableSetupColumn("Potential", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("Risk adj.", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("ROI", ImGuiTableColumnFlags.WidthFixed, 60 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("Live", ImGuiTableColumnFlags.WidthFixed, 82 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("Liquidate", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
                 DrawPortfolioHeaders();
 
@@ -329,7 +331,8 @@ public sealed partial class SuiteWindow
         HeaderCell(5, "Potential", "Modeled profit if the recommended exit succeeds at the target net value.");
         HeaderCell(6, "Risk adj.", "Potential profit discounted by evidence confidence, liquidation speed and market stability.");
         HeaderCell(7, "ROI", "Potential profit divided by acquisition cost.");
-        HeaderCell(8, "Liquidate", "Estimated time for the modeled resulting position to fully sell, including queue time where applicable.");
+        HeaderCell(8, "Live", "Native FFXIV verification state for this recommendation: Verified, Changed, Refreshed, or Not checked.");
+        HeaderCell(9, "Liquidate", "Estimated time for the modeled resulting position to fully sell, including queue time where applicable.");
     }
 
     private void DrawPortfolioRow(BuyOpportunity row)
@@ -352,23 +355,18 @@ public sealed partial class SuiteWindow
         ImGui.TableSetColumnIndex(5); ImGui.TextUnformatted(Gil(row.PotentialProfit));
         ImGui.TableSetColumnIndex(6); ImGui.TextUnformatted(Gil(row.RiskAdjustedProfit));
         ImGui.TableSetColumnIndex(7); ImGui.TextUnformatted(Percent(row.Roi));
-        ImGui.TableSetColumnIndex(8); ImGui.TextUnformatted(Days(row.EstimatedLiquidationDays));
+        ImGui.TableSetColumnIndex(8); ImGui.TextUnformatted(LiveStateLabel(GetBuyLiveState(row)));
+        ImGui.TableSetColumnIndex(9); ImGui.TextUnformatted(Days(row.EstimatedLiquidationDays));
     }
 
     private void DrawBuyResults()
     {
-        ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##buy-result-search", "Search opportunity item...", ref buySearch, 128);
-        Tooltip("Filter the current scan results by item name. Sorting and the underlying scan results are not changed.");
-
-        var filtered = GetCurrentWorldBuyOpportunities()
-            .Where(x => string.IsNullOrWhiteSpace(buySearch) || x.Item.Name.Contains(buySearch, StringComparison.CurrentCultureIgnoreCase));
-        var rows = SortBuyRows(filtered);
+        var rows = SortBuyRows(GetFilteredBuyOpportunities());
 
         ImGui.TextDisabled($"{rows.Count:N0} visible opportunity package(s). Click a header to sort. Click anywhere on a row to open its full analysis.");
 
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
-        if (ImGui.BeginTable("##buy-opportunity-table", 11, flags, new Vector2(0, -1)))
+        if (ImGui.BeginTable("##buy-opportunity-table", 12, flags, new Vector2(0, -1)))
         {
             ImGui.TableSetupScrollFreeze(0, 1);
             ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
@@ -381,6 +379,7 @@ public sealed partial class SuiteWindow
             ImGui.TableSetupColumn("Profit", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Risk adj.", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("ROI", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn("Live", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Liquidate", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
             DrawSortableBuyHeaders();
 
@@ -404,7 +403,8 @@ public sealed partial class SuiteWindow
         SortableHeader(7, "Profit", BuySortColumn.PotentialProfit, "Potential total profit after modeled seller tax if the suggested exit succeeds.");
         SortableHeader(8, "Risk adj.", BuySortColumn.RiskAdjustedProfit, "Potential profit discounted for confidence, liquidation speed and stability. Useful for comparing capital allocation choices.");
         SortableHeader(9, "ROI", BuySortColumn.Roi, "Potential profit divided by total acquisition cost.");
-        SortableHeader(10, "Liquidate", BuySortColumn.Liquidation, "Estimated time to sell the full modeled position, not merely the first unit.");
+        HeaderCell(10, "Live", "Native FFXIV verification state. Use the Live filter above to show only Verified, Changed, Refreshed or Not checked opportunities.");
+        SortableHeader(11, "Liquidate", BuySortColumn.Liquidation, "Estimated time to sell the full modeled position, not merely the first unit.");
     }
 
     private void DrawBuyOpportunityRow(BuyOpportunity row)
@@ -430,7 +430,8 @@ public sealed partial class SuiteWindow
         ImGui.TableSetColumnIndex(7); ImGui.TextUnformatted(Gil(row.PotentialProfit));
         ImGui.TableSetColumnIndex(8); ImGui.TextUnformatted(Gil(row.RiskAdjustedProfit));
         ImGui.TableSetColumnIndex(9); ImGui.TextUnformatted(Percent(row.Roi));
-        ImGui.TableSetColumnIndex(10); ImGui.TextUnformatted(Days(row.EstimatedLiquidationDays));
+        ImGui.TableSetColumnIndex(10); ImGui.TextUnformatted(LiveStateLabel(GetBuyLiveState(row)));
+        ImGui.TableSetColumnIndex(11); ImGui.TextUnformatted(Days(row.EstimatedLiquidationDays));
     }
 
     private List<BuyOpportunity> SortBuyRows(IEnumerable<BuyOpportunity> source)
@@ -628,6 +629,17 @@ public sealed partial class SuiteWindow
         return $"{age.TotalDays:0.#}d";
     }
 }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

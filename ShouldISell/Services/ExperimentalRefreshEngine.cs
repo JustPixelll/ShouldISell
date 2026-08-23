@@ -111,6 +111,18 @@ public sealed unsafe class ExperimentalRefreshEngine : IDisposable
     }
 
     /// <summary>
+    /// Force-refreshes an arbitrary ranked item sequence. Should I Buy? uses this for its explicit
+    /// native Deep Scan after Universalis discovery. Input order is preserved so the strongest
+    /// opportunities are requested first; duplicate item IDs are collapsed by the queue.
+    /// </summary>
+    public void StartForItems(IEnumerable<uint> itemIds, string scope)
+    {
+        if (IsRunning || !playerState.IsLoaded)
+            return;
+        StartQueue(itemIds, scope, onlyStale: false);
+    }
+
+    /// <summary>
     /// Force-refreshes only the unique items that are currently listed across the player's
     /// cached retainers. This is intentionally much smaller than a full owned-item audit.
     /// </summary>
@@ -175,7 +187,7 @@ public sealed unsafe class ExperimentalRefreshEngine : IDisposable
 
         var worldId = playerState.CurrentWorld.RowId;
         var staleBefore = DateTimeOffset.UtcNow.AddHours(-Math.Max(1, configuration.ExperimentalRefreshStaleHours));
-        foreach (var itemId in itemIds.Distinct().Order())
+        foreach (var itemId in itemIds.Distinct())
         {
             if (!catalog.IsMarketable(itemId))
                 continue;
@@ -337,3 +349,5 @@ public sealed unsafe class ExperimentalRefreshEngine : IDisposable
     private static DateTimeOffset? Max(DateTimeOffset? a, DateTimeOffset? b)
         => a is null ? b : b is null ? a : a >= b ? a : b;
 }
+
+
