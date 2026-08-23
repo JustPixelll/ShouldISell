@@ -237,7 +237,7 @@ public sealed class TraderAnalyzer
         var openValue = knownOpenValues.Count > 0
             ? knownOpenValues.Sum(x => x.EstimatedNetMarketValue!.Value)
             : (double?)null;
-        var unrealized = openValue is { } v ? v - knownOpenValues.Sum(x => x.CostBasis) : null;
+        double? unrealized = openValue is { } v ? v - knownOpenValues.Sum(x => x.CostBasis) : null;
 
         var priceErrors = closed
             .Where(x => x.PredictedExitUnitPrice is > 0)
