@@ -1,0 +1,90 @@
+using System.Numerics;
+using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Windowing;
+using ShouldISell.Services;
+
+namespace ShouldISell.Windows;
+
+public enum ShouldIModule
+{
+    Sell,
+    Buy,
+    Tycoon,
+}
+
+/// <summary>
+/// Product shell for the Should I? suite. The proven Should I Sell? window is embedded intact inside
+/// the Sell module while Buy and Tycoon share the same market/inventory/personal-sale services.
+/// </summary>
+public sealed partial class SuiteWindow : Window, IDisposable
+{
+    private readonly Plugin plugin;
+    private readonly MainWindow sellWindow;
+    private ShouldIModule? selectOnNextDraw;
+    private BuyOpportunity? selectedBuyOpportunity;
+    private BuyPortfolioPlan? buyPortfolioPlan;
+    private string buySearch = string.Empty;
+    private string buyCategorySearch = string.Empty;
+
+    public SuiteWindow(Plugin plugin)
+        : base("Should I?##ShouldISuite")
+    {
+        this.plugin = plugin;
+        sellWindow = new MainWindow(plugin);
+        SizeConstraints = new WindowSizeConstraints
+        {
+            MinimumSize = new Vector2(980, 620),
+            MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
+        };
+    }
+
+    public void Dispose() => sellWindow.Dispose();
+
+    public void OpenModule(ShouldIModule module)
+    {
+        selectOnNextDraw = module;
+        IsOpen = true;
+    }
+
+    public override void Draw()
+    {
+        ImGui.TextUnformatted("Should I?");
+        ImGui.SameLine();
+        ImGui.TextDisabled("One market brain: sell better, buy better, learn from your own trades.");
+        ImGui.Separator();
+
+        if (!ImGui.BeginTabBar("##should-i-modules"))
+            return;
+
+        DrawModuleTab(ShouldIModule.Sell, "Should I Sell?", sellWindow.Draw);
+        DrawModuleTab(ShouldIModule.Buy, "Should I Buy?", DrawBuyModule);
+        DrawModuleTab(ShouldIModule.Tycoon, "Should I Tycoon?", DrawTycoonModule);
+        ImGui.EndTabBar();
+
+        selectOnNextDraw = null;
+    }
+
+    private void DrawModuleTab(ShouldIModule module, string label, Action draw)
+    {
+        var flags = selectOnNextDraw == module ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
+        if (!ImGui.BeginTabItem(label, flags))
+            return;
+        draw();
+        ImGui.EndTabItem();
+    }
+
+    private static string Stars(int stars)
+        => new string('★', Math.Clamp(stars, 1, 5)) + new string('☆', 5 - Math.Clamp(stars, 1, 5));
+
+    private static string Gil(double? value)
+        => value is null || double.IsNaN(value.Value) || double.IsInfinity(value.Value)
+            ? "—"
+            : $"{value.Value:N0}g";
+
+    private static string Gil(long value) => $"{value:N0}g";
+
+    private static string Percent(double value) => $"{value:P1}";
+
+    private static string Days(double? value)
+        => value is null ? "—" : value.Value < 1 ? $"{value.Value * 24:0.#}h" : $"{value.Value:0.#}d";
+}

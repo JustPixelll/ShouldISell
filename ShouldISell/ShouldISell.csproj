@@ -1,15 +1,15 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.0.0.0</Version>
+    <Version>1.1.0.0</Version>
     <Author>JustPixelll</Author>
-    <Name>Should I Sell?</Name>
-    <Punchline>Know what to sell, how much, and for how much.</Punchline>
-    <Description>Analyze owned FFXIV items for Market Board selling opportunities with suggested prices, stack sizes, current-listing audits, passive sales history, listing alerts, and live market refreshes.</Description>
+    <Name>Should I?</Name>
+    <Punchline>Sell smarter. Buy smarter. Learn your trading style.</Punchline>
+    <Description>One FFXIV Market Board suite containing Should I Sell?, Should I Buy?, and Should I Tycoon?: selling guidance, budget-aware opportunity scanning, vendor/stack arbitrage analysis, automatic purchase cost-basis capture, personal sales history, and trader performance analytics.</Description>
     <PackageProjectUrl>https://github.com/JustPixelll/ShouldISell</PackageProjectUrl>
     <RepoUrl>https://github.com/JustPixelll/ShouldISell</RepoUrl>
     <IconUrl>https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/icon.png</IconUrl>
     <ImageUrls>https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/overview.png;https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/details.png</ImageUrls>
-    <Tags>market;market board;retainer;sales;sales history;listing alerts;economy;universalis</Tags>
+    <Tags>market;market board;retainer;sales;trading;arbitrage;profit;portfolio;universalis</Tags>
     <CategoryTags>utility</CategoryTags>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>

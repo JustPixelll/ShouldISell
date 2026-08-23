@@ -10,7 +10,8 @@ namespace ShouldISell;
 
 public sealed class Plugin : IDalamudPlugin
 {
-    private const string CommandName = "/sellcheck";
+    private const string CommandName = "/shouldi";
+    private const string LegacySellCommand = "/sellcheck";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -27,6 +28,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public Configuration Configuration { get; }
     public LocalStore Store { get; }
+    public TraderStore TraderStore { get; }
     public GameItemCatalog Catalog { get; }
     public InventoryScanner Inventory { get; }
     public UniversalisClient Universalis { get; }
@@ -38,15 +40,19 @@ public sealed class Plugin : IDalamudPlugin
     public SellScanContextService SellScanContext { get; }
     public ExperimentalRefreshEngine RefreshEngine { get; }
     public RetainerListingAttentionOverlay ListingAttentionOverlay { get; }
+    public BuyOpportunityScanner BuyScanner { get; }
+    public MarketPurchaseObserver PurchaseObserver { get; }
+    public TraderAnalyzer TraderAnalyzer { get; }
 
-    public readonly WindowSystem WindowSystem = new("ShouldISell");
-    private readonly MainWindow mainWindow;
+    public readonly WindowSystem WindowSystem = new("ShouldI");
+    private readonly SuiteWindow suiteWindow;
 
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         Configuration.MigrateIfNeeded();
         Store = new LocalStore(PluginInterface, Log);
+        TraderStore = new TraderStore(PluginInterface, Log);
         Catalog = new GameItemCatalog(DataManager);
         Inventory = new InventoryScanner(PlayerState, Catalog, Store, Log);
         Universalis = new UniversalisClient(Log);
@@ -58,13 +64,20 @@ public sealed class Plugin : IDalamudPlugin
         SellScanContext = new SellScanContextService(GameGui);
         RefreshEngine = new ExperimentalRefreshEngine(Configuration, Framework, PlayerState, Catalog, Inventory, Store, MarketObserver, SellScanContext, Log);
         ListingAttentionOverlay = new RetainerListingAttentionOverlay(GameGui, PlayerState, Coordinator, Log);
+        BuyScanner = new BuyOpportunityScanner(Configuration, PlayerState, Catalog, Inventory, Scores, Log);
+        PurchaseObserver = new MarketPurchaseObserver(MarketBoard, PlayerState, TraderStore, BuyScanner, Log);
+        TraderAnalyzer = new TraderAnalyzer(PlayerState, TraderStore, Store, Coordinator, Catalog);
 
-        mainWindow = new MainWindow(this);
-        WindowSystem.AddWindow(mainWindow);
+        suiteWindow = new SuiteWindow(this);
+        WindowSystem.AddWindow(suiteWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open Should I Sell?. /sellcheck scan, /sellcheck fetch, /sellcheck refresh, /sellcheck listings, /sellcheck livescan, /sellcheck audit, /sellcheck stop",
+            HelpMessage = "Open Should I?. /shouldi sell, /shouldi buy, /shouldi tycoon, /shouldi scan, /shouldi fetch, /shouldi refresh, /shouldi listings, /shouldi livescan, /shouldi audit, /shouldi stop",
+        });
+        CommandManager.AddHandler(LegacySellCommand, new CommandInfo(OnLegacySellCommand)
+        {
+            HelpMessage = "Legacy Should I Sell? command. Existing /sellcheck scan/fetch/refresh/listings/livescan/audit/stop commands remain supported.",
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -78,20 +91,24 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnFrameworkUpdate;
+        PurchaseObserver.Dispose();
+        BuyScanner.Dispose();
         RefreshEngine.Dispose();
         SaleAnnouncements.Dispose();
         SaleHistory.Dispose();
         MarketObserver.Dispose();
         Universalis.Dispose();
         Store.Flush();
+        TraderStore.Flush();
 
         PluginInterface.UiBuilder.Draw -= ListingAttentionOverlay.Draw;
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi -= OpenMainUi;
         CommandManager.RemoveHandler(CommandName);
+        CommandManager.RemoveHandler(LegacySellCommand);
         WindowSystem.RemoveAllWindows();
-        mainWindow.Dispose();
+        suiteWindow.Dispose();
     }
 
     private DateTimeOffset nextPassiveScan = DateTimeOffset.MinValue;
@@ -105,11 +122,30 @@ public sealed class Plugin : IDalamudPlugin
         Inventory.ScanLoadedContainers();
     }
 
+    private void OnLegacySellCommand(string command, string args)
+    {
+        if (string.IsNullOrWhiteSpace(args))
+        {
+            suiteWindow.OpenModule(ShouldIModule.Sell);
+            return;
+        }
+        OnCommand(command, args);
+    }
+
     private void OnCommand(string command, string args)
     {
         var trimmed = args.Trim();
         switch (trimmed.ToLowerInvariant())
         {
+            case "sell":
+                suiteWindow.OpenModule(ShouldIModule.Sell);
+                break;
+            case "buy":
+                suiteWindow.OpenModule(ShouldIModule.Buy);
+                break;
+            case "tycoon":
+                suiteWindow.OpenModule(ShouldIModule.Tycoon);
+                break;
             case "scan":
                 Inventory.ScanLoadedContainers(forceFlush: true);
                 break;
@@ -130,12 +166,13 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "stop":
                 RefreshEngine.Stop("Stopped by user.");
+                BuyScanner.CancelScan();
                 break;
             default:
-                mainWindow.Toggle();
+                suiteWindow.Toggle();
                 break;
         }
     }
 
-    private void OpenMainUi() => mainWindow.IsOpen = true;
+    private void OpenMainUi() => suiteWindow.IsOpen = true;
 }

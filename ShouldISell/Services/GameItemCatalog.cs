@@ -8,6 +8,8 @@ public sealed class GameItemCatalog
     private readonly IDataManager data;
     private readonly Dictionary<uint, ItemInfo> cache = new();
     private HashSet<uint>? gilShopItems;
+    private IReadOnlyList<ItemCategoryInfo>? categories;
+    private IReadOnlyList<MarketCatalogEntry>? marketableEntries;
 
     public GameItemCatalog(IDataManager data)
     {
@@ -47,6 +49,62 @@ public sealed class GameItemCatalog
     }
 
     public bool IsMarketable(uint itemId) => Get(itemId).IsMarketable;
+
+    /// <summary>
+    /// Returns FFXIV's normal item UI categories. Should I Buy? uses these as its discovery
+    /// scope rather than maintaining a brittle hand-written list of item IDs.
+    /// </summary>
+    public IReadOnlyList<ItemCategoryInfo> GetCategories()
+    {
+        if (categories is not null)
+            return categories;
+
+        categories = data.GetExcelSheet<ItemUICategory>()
+            .Where(x => x.RowId != 0 && !string.IsNullOrWhiteSpace(x.Name.ToString()))
+            .Select(x => new ItemCategoryInfo(x.RowId, x.Name.ToString()))
+            .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        return categories;
+    }
+
+    /// <summary>
+    /// Builds the local discovery universe for Should I Buy?. This is deliberately derived from
+    /// Lumina/game data: discovery never needs to walk the in-game Market Board to learn which
+    /// items exist. Universalis is queried only after this local scope has been selected.
+    /// </summary>
+    public IReadOnlyList<MarketCatalogEntry> GetAllMarketableEntries()
+    {
+        if (marketableEntries is not null)
+            return marketableEntries;
+
+        var categorySheet = data.GetExcelSheet<ItemUICategory>();
+        var result = new List<MarketCatalogEntry>();
+        foreach (var row in data.GetExcelSheet<Item>())
+        {
+            if (row.RowId == 0 || row.ItemSearchCategory.RowId == 0)
+                continue;
+
+            var name = row.Name.ToString();
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+
+            var categoryId = row.ItemUICategory.RowId;
+            var categoryName = categorySheet.TryGetRow(categoryId, out var category)
+                ? category.Name.ToString()
+                : "Uncategorized";
+
+            result.Add(new MarketCatalogEntry(
+                Get(row.RowId),
+                categoryId,
+                categoryName,
+                row.EquipSlotCategory.RowId > 0));
+        }
+
+        marketableEntries = result
+            .OrderBy(x => x.Item.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        return marketableEntries;
+    }
 
     private bool IsSoldByGilVendor(uint itemId)
     {
