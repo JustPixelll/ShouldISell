@@ -23,6 +23,9 @@ public sealed partial class SuiteWindow : Window, IDisposable
     private ShouldIModule? selectOnNextDraw;
     private BuyOpportunity? selectedBuyOpportunity;
     private BuyPortfolioPlan? buyPortfolioPlan;
+    private bool buyDetailsOpen;
+    private BuySortColumn buySortColumn = BuySortColumn.Rating;
+    private bool buySortAscending;
     private string buySearch = string.Empty;
     private string buyCategorySearch = string.Empty;
 
