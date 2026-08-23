@@ -46,7 +46,7 @@ public sealed class BuyOpportunityScanner : IDisposable
 
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(30);
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "1.1.3"));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "1.1.6"));
     }
 
     public bool IsScanning { get; private set; }
@@ -188,7 +188,7 @@ public sealed class BuyOpportunityScanner : IDisposable
                     continue;
 
                 ownedByVariant.TryGetValue((candidate.Entry.Item.ItemId, candidate.IsHq), out var existingQuantity);
-                if (settings.EnableMarketToMarket)
+                if (settings.EnableMarketToMarket && !HasRenewableVendorSupply(candidate.Entry.Item, candidate.IsHq))
                     TryAddBestMarketFlip(final, worldId, candidate, deep, existingQuantity, settings);
                 if (settings.EnableVendorToMarket && !candidate.IsHq && candidate.Entry.Item.VendorGilShopPrice is > 0)
                     TryAddVendorToMarket(final, worldId, candidate, deep, existingQuantity, settings);
@@ -267,6 +267,9 @@ public sealed class BuyOpportunityScanner : IDisposable
         scanGate.Dispose();
     }
 
+    private static bool HasRenewableVendorSupply(ItemInfo item, bool isHq)
+        => !isHq && item.VendorGilShopPrice is > 0;
+
     private void TryAddBestMarketFlip(
         List<BuyOpportunity> output,
         uint worldId,
@@ -275,6 +278,12 @@ public sealed class BuyOpportunityScanner : IDisposable
         int existingQuantity,
         ScanSettings settings)
     {
+        // A normal-gil vendor is effectively renewable external supply. Buying out player listings
+        // does not create durable scarcity because any player can immediately restock at the fixed
+        // NPC price. Never model those NQ items as Market → Market buyouts/undercut sweeps.
+        if (HasRenewableVendorSupply(candidate.Entry.Item, candidate.IsHq))
+            return;
+
         var variantListings = deep.Listings
             .Where(x => x.Listing.IsHq == candidate.IsHq && x.Listing.PricePerUnit > 0 && x.Listing.Quantity > 0)
             .OrderBy(x => x.Listing.PricePerUnit)
@@ -413,7 +422,9 @@ public sealed class BuyOpportunityScanner : IDisposable
         var perItemBudget = Math.Max(1L, settings.BudgetGil * Math.Clamp(settings.MaxInvestmentPercentPerItem, 1, 100) / 100L);
         affordable = Math.Min(affordable, (int)Math.Min(int.MaxValue, perItemBudget / vendorPrice.Value));
         var demandBound = Math.Max(1, (int)Math.Ceiling(candidate.Variant.DailyVelocity * settings.MaximumHoldingDays));
-        var stackBound = (int)Math.Clamp(candidate.Entry.Item.StackSize == 0 ? 999u : candidate.Entry.Item.StackSize, 1u, int.MaxValue);
+        var stackBound = Math.Min(
+            MarketBoardRules.MaxListingQuantity,
+            (int)Math.Clamp(candidate.Entry.Item.StackSize == 0 ? (uint)MarketBoardRules.MaxListingQuantity : candidate.Entry.Item.StackSize, 1u, int.MaxValue));
         var quantity = Math.Min(affordable, Math.Min(demandBound, stackBound));
         if (quantity <= 0)
             return;
@@ -468,7 +479,8 @@ public sealed class BuyOpportunityScanner : IDisposable
         var notes = new List<string>
         {
             $"Normal gil vendor price is {vendorPrice.Value:N0}g/unit; this route does not depend on finding a cheap Market Board listing.",
-            $"Quantity is demand-capped to about {settings.MaximumHoldingDays:0.#} day(s) of recent velocity rather than blindly buying a full stack.",
+            "Normal-gil vendor supply is renewable for every player, so this strategy never assumes that buying out competing Market Board listings will create durable scarcity.",
+            $"Quantity is demand-capped and hard-capped to one listable working stack (maximum 99 units) rather than stockpiling renewable vendor supply.",
             $"Recent estimated demand is {rating.UnitsPerDay:0.##} unit(s)/day across {rating.SalesSampleCount:N0} sampled sale(s).",
         };
         if (existingQuantity > 0)
@@ -610,7 +622,9 @@ public sealed class BuyOpportunityScanner : IDisposable
         var marketMargin = variant.MinListing > 0
             ? (netAverage - variant.MinListing) / variant.MinListing
             : 0;
-        var marketSignal = settings.EnableMarketToMarket && variant.MinListing > 0 && variant.DailyVelocity > 0.001 &&
+        var vendorContested = HasRenewableVendorSupply(item, isHq);
+        var marketSignal = settings.EnableMarketToMarket && !vendorContested &&
+                           variant.MinListing > 0 && variant.DailyVelocity > 0.001 &&
                            marketMargin >= settings.MinimumRoi * 0.60;
 
         var vendorMarketMargin = !isHq && item.VendorGilShopPrice is > 0
@@ -625,7 +639,9 @@ public sealed class BuyOpportunityScanner : IDisposable
         if (!marketSignal && !vendorMarketSignal && !vendorFloorSignal)
             return;
 
-        var bestMargin = Math.Max(0, Math.Max(marketMargin, double.IsFinite(vendorMarketMargin) ? vendorMarketMargin : 0));
+        var scoredMarketMargin = marketSignal ? marketMargin : 0;
+        var scoredVendorMarketMargin = vendorMarketSignal && double.IsFinite(vendorMarketMargin) ? vendorMarketMargin : 0;
+        var bestMargin = Math.Max(0, Math.Max(scoredMarketMargin, scoredVendorMarketMargin));
         var velocitySignal = Math.Log10(1 + Math.Max(0, variant.DailyVelocity));
         var roughScore = 100 * bestMargin + 12 * velocitySignal;
         if (vendorFloorSignal)
@@ -1034,6 +1050,13 @@ public sealed class BuyOpportunityScanner : IDisposable
         public List<MarketSale> Sales { get; } = new();
     }
 }
+
+
+
+
+
+
+
 
 
 
