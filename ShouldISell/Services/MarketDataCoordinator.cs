@@ -138,11 +138,20 @@ public sealed class MarketDataCoordinator
                     .GroupBy(x => (x.OwnerKind, x.OwnerId, x.OwnerName, x.Container))
                     .Select(g => FormatLocation(g.Key.OwnerKind, g.Key.OwnerName, g.Key.Container, g.Sum(x => x.Quantity)))
                     .ToList();
+                var ownership = group
+                    .GroupBy(x => (x.OwnerKind, x.OwnerId, x.OwnerName))
+                    .Select(g => new OwnedLocationSummary(
+                        g.Key.OwnerKind,
+                        g.Key.OwnerId,
+                        g.Key.OwnerName,
+                        g.Sum(x => x.Quantity)))
+                    .ToList();
                 return new RatedOwnedItem(
                     item,
                     group.Key.IsHq,
                     quantity,
                     locations,
+                    ownership,
                     rating,
                     group.Max(x => (DateTimeOffset?)x.ObservedAtUtc));
             })
@@ -334,3 +343,4 @@ public sealed class MarketDataCoordinator
             ? $"{ownerName} / {container} x{quantity}"
             : $"{container} x{quantity}";
 }
+
