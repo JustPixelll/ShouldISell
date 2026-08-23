@@ -43,6 +43,8 @@ public sealed class Plugin : IDalamudPlugin
     public BuyOpportunityScanner BuyScanner { get; }
     public MarketPurchaseObserver PurchaseObserver { get; }
     public TraderAnalyzer TraderAnalyzer { get; }
+    public ListingHistoryTracker ListingHistory { get; }
+    public TycoonInsightService TycoonInsights { get; }
 
     public readonly WindowSystem WindowSystem = new("ShouldI");
     private readonly SuiteWindow suiteWindow;
@@ -67,6 +69,8 @@ public sealed class Plugin : IDalamudPlugin
         BuyScanner = new BuyOpportunityScanner(Configuration, PlayerState, Catalog, Inventory, Scores, Log);
         PurchaseObserver = new MarketPurchaseObserver(MarketBoard, PlayerState, TraderStore, BuyScanner, Log);
         TraderAnalyzer = new TraderAnalyzer(PlayerState, TraderStore, Store, Coordinator, Catalog);
+        ListingHistory = new ListingHistoryTracker(PluginInterface, PlayerState, Store, Log);
+        TycoonInsights = new TycoonInsightService(PlayerState, Store, Catalog, ListingHistory);
 
         suiteWindow = new SuiteWindow(this);
         WindowSystem.AddWindow(suiteWindow);
@@ -92,6 +96,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         Framework.Update -= OnFrameworkUpdate;
         PurchaseObserver.Dispose();
+        ListingHistory.Dispose();
         BuyScanner.Dispose();
         RefreshEngine.Dispose();
         SaleAnnouncements.Dispose();
@@ -120,6 +125,7 @@ public sealed class Plugin : IDalamudPlugin
 
         nextPassiveScan = DateTimeOffset.UtcNow.AddSeconds(2);
         Inventory.ScanLoadedContainers();
+        ListingHistory.Capture();
     }
 
     private void OnLegacySellCommand(string command, string args)
