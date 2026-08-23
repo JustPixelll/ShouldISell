@@ -9,9 +9,13 @@ public sealed class BuyUniversalisClient : IDisposable
     private const int BatchSize = 100;
     private readonly HttpClient http = new();
     private readonly IPluginLog log;
+    private readonly Configuration configuration;
+    private readonly GameItemCatalog catalog;
 
-    public BuyUniversalisClient(IPluginLog log)
+    public BuyUniversalisClient(Configuration configuration, GameItemCatalog catalog, IPluginLog log)
     {
+        this.configuration = configuration;
+        this.catalog = catalog;
         this.log = log;
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(30);
@@ -29,9 +33,11 @@ public sealed class BuyUniversalisClient : IDisposable
         if (doc.RootElement.ValueKind != JsonValueKind.Array)
             return Array.Empty<uint>();
 
+        var enabledCategories = configuration.BuyEnabledSearchCategoryIds?.ToHashSet() ?? new HashSet<uint>();
         return doc.RootElement.EnumerateArray()
             .Select(x => x.TryGetUInt32(out var id) ? id : 0)
             .Where(x => x != 0)
+            .Where(x => enabledCategories.Count == 0 || enabledCategories.Contains(catalog.GetMarketSearchCategoryId(x)))
             .Distinct()
             .ToList();
     }
