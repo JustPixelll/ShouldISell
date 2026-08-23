@@ -14,6 +14,12 @@ Start a scan directly:
 /buycheck scan
 ```
 
+Configure Market Board category scope:
+
+```text
+/buycheck scope
+```
+
 Stop a running scan:
 
 ```text
@@ -22,7 +28,7 @@ Stop a running scan:
 
 ## Discovery pipeline
 
-1. Fetch the Universalis marketable-item universe.
+1. Fetch the Universalis marketable-item universe and apply the configured FFXIV Market Board category scope.
 2. Query the Universalis aggregated endpoint in batches of up to 100 item IDs. This is the cheap discovery pass and uses minimum listing price, recent average sale price and daily sale velocity.
 3. Keep only the strongest rough candidates according to the configured strategy/risk thresholds.
 4. Fetch current listing depth and up to 90 days of sale history for the deep-candidate set.
@@ -106,9 +112,9 @@ The current profile reports:
 
 ## Scope and settings
 
-The first UI exposes budget, minimum profit, minimum ROI, target holding period, maximum capital exposure per item, deep-analysis candidate count, estimated discovery-time buyer tax, strategy toggles and HQ inclusion.
+The Buy Settings tab exposes budget, minimum profit, minimum ROI, target holding period, maximum capital exposure per item, deep-analysis candidate count, estimated discovery-time buyer tax, strategy toggles and HQ inclusion.
 
-The catalog also exposes FFXIV `ItemSearchCategory` metadata for category-scoped discovery; category UI/scanner wiring is intentionally kept as a small follow-up if the first in-game build shows the Lumina category labels need grouping for usability.
+`/buycheck scope` opens a dedicated scope window built from FFXIV's own `ItemSearchCategory` sheet. The scanner supports either all Market Board categories or an explicit custom selection. The selection is applied before the Universalis discovery pass, so narrowing the scope also reduces aggregate API work.
 
 ## Important limitations of this first integrated build
 
@@ -116,5 +122,7 @@ The catalog also exposes FFXIV `ItemSearchCategory` metadata for category-scoped
 - Discovery-time buyer tax is configurable because unseen listings do not provide the actual tax to this client. Completed Market Board purchases store the actual tax reported by Dalamud.
 - Vendor purchases are not yet automatically captured into cost basis because they do not pass through Dalamud's Market Board purchase events.
 - Cross-world arbitrage is designed for but not enabled in this first implementation.
+- Live in-game verification of a selected recommendation is not wired yet; discovery and deep analysis are Universalis-driven in this build.
 - The portfolio allocator is greedy rather than a full integer-programming optimizer.
+- Personal prediction accuracy is reported, but it does not yet automatically recalibrate future buy scores.
 - Recommendations are analysis, not guarantees, and all purchases remain manual.
