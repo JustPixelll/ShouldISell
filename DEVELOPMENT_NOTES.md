@@ -1,4 +1,4 @@
-# Build notes — v0.8.0
+# Should I? legacy build notes — v0.8.0
 
 The ChatGPT execution environment used to assemble this source does not contain the .NET SDK or Dalamud runtime, so run the normal Windows build and send back compiler output if API 15 reports a binding mismatch.
 
