@@ -741,7 +741,7 @@ public sealed partial class MainWindow : Window, IDisposable
 
     private void DrawCurrentListings()
     {
-        ImGui.TextDisabled("Live market snapshots update passively from normal Market Board use or Should I Deep Mine?.");
+        ImGui.TextDisabled("Live market snapshots update passively from normal Market Board use and compatible local data providers.");
         ImGui.Spacing();
 
         ImGui.SetNextItemWidth(-1);
