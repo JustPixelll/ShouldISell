@@ -39,6 +39,7 @@ public sealed partial class MainWindow : Window, IDisposable
     private int listingStarsMax = 5;
     private long listingPayoutMin;
     private long listingPayoutMax = 999_999_999_999;
+    private ulong listingRetainerFilterId;
 
     private sealed record DetailSelection(
         ItemInfo Item,
@@ -772,13 +773,17 @@ public sealed partial class MainWindow : Window, IDisposable
 
         ImGui.SetNextItemWidth(-1);
         ImGui.InputTextWithHint("##listing-search", "Search current listings...", ref listingSearch, 128);
-        DrawListingFilters();
 
-        var allRows = plugin.Coordinator.GetRatedOwnListings()
+        var searchedRows = plugin.Coordinator.GetRatedOwnListings()
             .Where(x => string.IsNullOrWhiteSpace(listingSearch) ||
                         x.Item.Name.Contains(listingSearch, StringComparison.CurrentCultureIgnoreCase) ||
                         x.Listing.RetainerName.Contains(listingSearch, StringComparison.CurrentCultureIgnoreCase))
             .ToList();
+        DrawListingFilters(searchedRows);
+
+        var allRows = listingRetainerFilterId == 0
+            ? searchedRows
+            : searchedRows.Where(x => x.Listing.RetainerId == listingRetainerFilterId).ToList();
         var rows = allRows.Where(PassesListingFilters).ToList();
 
         ImGui.TextDisabled($"Showing {rows.Count:N0} of {allRows.Count:N0} cached current retainer listing(s). Open each retainer once to populate/refresh this tab.");
@@ -893,10 +898,47 @@ public sealed partial class MainWindow : Window, IDisposable
         ImGui.EndTooltip();
     }
 
-    private void DrawListingFilters()
+    private void DrawListingFilters(IReadOnlyList<RatedOwnListing> listings)
     {
         if (!ImGui.CollapsingHeader("Filters##listings"))
             return;
+
+        var retainers = listings
+            .Where(x => x.Listing.RetainerId != 0)
+            .GroupBy(x => x.Listing.RetainerId)
+            .Select(g => new
+            {
+                Id = g.Key,
+                Name = g.Select(x => x.Listing.RetainerName).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? "Unnamed retainer",
+                Listings = g.Count(),
+            })
+            .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        if (listingRetainerFilterId != 0 && retainers.All(x => x.Id != listingRetainerFilterId))
+            listingRetainerFilterId = 0;
+
+        var selectedRetainer = retainers.FirstOrDefault(x => x.Id == listingRetainerFilterId);
+        var retainerPreview = selectedRetainer is null
+            ? $"Retainer: All ({listings.Count:N0})"
+            : $"Retainer: {selectedRetainer.Name} ({selectedRetainer.Listings:N0})";
+        ImGui.SetNextItemWidth(260 * ImGuiHelpers.GlobalScale);
+        if (ImGui.BeginCombo("##listing-retainer-filter", retainerPreview))
+        {
+            if (ImGui.Selectable($"All retainers ({listings.Count:N0})", listingRetainerFilterId == 0))
+                listingRetainerFilterId = 0;
+            if (retainers.Count > 0)
+                ImGui.Separator();
+            foreach (var retainer in retainers)
+            {
+                if (ImGui.Selectable($"{retainer.Name} ({retainer.Listings:N0})##listing-retainer-{retainer.Id}", listingRetainerFilterId == retainer.Id))
+                    listingRetainerFilterId = retainer.Id;
+            }
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Limit Current Listings to one cached retainer. Search, rating, stars and payout filters are applied on top of this selection.");
+        ImGui.Spacing();
 
         var width = 165 * ImGuiHelpers.GlobalScale;
         ImGui.SetNextItemWidth(width);
@@ -931,6 +973,7 @@ public sealed partial class MainWindow : Window, IDisposable
             listingStarsMax = 5;
             listingPayoutMin = 0;
             listingPayoutMax = 999_999_999_999;
+            listingRetainerFilterId = 0;
         }
         ImGui.TextDisabled("Payout filters use the expected after-tax payout of the currently listed stack at its current listed price.");
         ImGui.Spacing();
