@@ -20,8 +20,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply Universalis request and cache fixes
-        shell: python
+        shell: bash
         run: |
+          python3 - <<'PY'
           from pathlib import Path
 
           def replace_exact(path, old, new):
@@ -84,6 +85,7 @@ jobs:
               'ShouldISell/ShouldISell.csproj',
               '<Version>2.3.2.0</Version>',
               '<Version>2.3.3.0</Version>')
+          PY
 
       - name: Commit fix branch
         run: |
