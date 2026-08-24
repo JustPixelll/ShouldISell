@@ -1,0 +1,106 @@
+name: One-time final Should I UX refactor
+
+on:
+  push:
+    branches: [ feature/craft-gather-opportunities ]
+    paths: [ .github/workflows/final-ux-refactor.yml ]
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feature/craft-gather-opportunities
+      - name: Apply refactor
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_required(text, old, new, label):
+              if old not in text:
+                  raise RuntimeError(f"Missing expected text for {label}")
+              return text.replace(old, new, 1)
+
+          # Coordinator: allow scoped refresh implementation to share the same private services.
+          p = Path('ShouldISell/Services/MarketDataCoordinator.cs')
+          text = p.read_text(encoding='utf-8-sig')
+          text = replace_required(text, 'public sealed class MarketDataCoordinator', 'public sealed partial class MarketDataCoordinator', 'coordinator partial')
+          p.write_text(text, encoding='utf-8')
+
+          # Sell: warning above everything, Universalis-only header, restore Market Refresh as API scopes.
+          p = Path('ShouldISell/Windows/MainWindow.cs')
+          text = p.read_text(encoding='utf-8-sig')
+          text = replace_required(text,
+              '''    public override void Draw()\n    {\n        DrawHeader();''',
+              '''    public override void Draw()\n    {\n        DrawInventoryCoverageWarning();\n        DrawHeader();''',
+              'sell warning placement')
+          text = replace_required(text,
+              '''            if (ImGui.BeginTabItem("Sales History"))\n            {\n                DrawSalesHistory();\n                ImGui.EndTabItem();\n            }\n            if (ImGui.BeginTabItem("Settings"))''',
+              '''            if (ImGui.BeginTabItem("Sales History"))\n            {\n                DrawSalesHistory();\n                ImGui.EndTabItem();\n            }\n            if (ImGui.BeginTabItem("Market Refresh"))\n            {\n                DrawUniversalisRefresh();\n                ImGui.EndTabItem();\n            }\n            if (ImGui.BeginTabItem("Settings"))''',
+              'Universalis Market Refresh tab')
+          text = replace_required(text,
+              '''        if (ImGui.Button("Scan loaded inventories"))\n            plugin.Inventory.ScanLoadedContainers(forceFlush: true);\n        ImGui.SameLine();\n        if (!plugin.Coordinator.IsFetching)''',
+              '''        if (!plugin.Coordinator.IsFetching)''',
+              'remove sell scan button')
+          p.write_text(text, encoding='utf-8')
+
+          # Buy discovery: name/quality are discovery scope; capital/risk values are permissive and
+          # therefore cannot silently filter findings now that those controls are gone.
+          p = Path('ShouldISell/Services/BuyOpportunityScanner.cs')
+          text = p.read_text(encoding='utf-8-sig')
+          text = replace_required(text,
+              '''            var universe = catalog.GetAllMarketableEntries()\n                .Where(x => settings.IncludeEquipment || !x.IsEquipment)\n                .Where(x => !settings.UseCategoryFilter || settings.CategoryIds.Contains(x.UiCategoryId))\n                .Where(x => lane != BuyScanLane.Vendor || x.Item.VendorGilShopPrice is > 0)\n                .ToList();''',
+              '''            var universe = catalog.GetAllMarketableEntries()\n                .Where(x => settings.IncludeEquipment || !x.IsEquipment)\n                .Where(x => string.IsNullOrWhiteSpace(settings.NameFilter) || x.Item.Name.Contains(settings.NameFilter, StringComparison.CurrentCultureIgnoreCase))\n                .Where(x => !settings.UseCategoryFilter || settings.CategoryIds.Contains(x.UiCategoryId))\n                .Where(x => lane != BuyScanLane.Vendor || x.Item.VendorGilShopPrice is > 0)\n                .ToList();''',
+              'buy discovery name filter')
+          text = replace_required(text,
+              '''                    AddRoughCandidate(rough, entry, false, row.Nq, settings);\n                    if (entry.Item.CanBeHq)\n                        AddRoughCandidate(rough, entry, true, row.Hq, settings);''',
+              '''                    if (settings.IncludeNq)\n                        AddRoughCandidate(rough, entry, false, row.Nq, settings);\n                    if (settings.IncludeHq && entry.Item.CanBeHq)\n                        AddRoughCandidate(rough, entry, true, row.Hq, settings);''',
+              'buy discovery quality filter')
+          old_snapshot = '''    private ScanSettings SnapshotSettings()\n    {\n        var budget = Math.Clamp(configuration.BuyBudgetGil, 1_000, 999_999_999);\n        var minProfit = Math.Clamp(configuration.BuyMinimumProfitGil, 0, budget);\n        var minRoi = Math.Clamp(configuration.BuyMinimumRoiPercent / 100.0, 0, 10);\n        var maxHolding = Math.Clamp(configuration.BuyMaximumHoldingDays, 0.25f, 365f);\n        var maxPerItem = Math.Clamp(configuration.BuyMaximumInvestmentPercentPerItem, 1, 100);\n        var deepLimit = Math.Clamp(configuration.BuyDeepCandidateLimit, 20, 500);\n        return new ScanSettings(\n            budget,\n            minProfit,\n            minRoi,\n            maxHolding,\n            maxPerItem,\n            deepLimit,\n            configuration.BuyIncludeEquipment,\n            configuration.BuyUseCategoryFilter,\n            configuration.BuyIncludedCategoryIds.ToHashSet(),\n            configuration.BuyEnableMarketToMarket,\n            configuration.BuyEnableVendorToMarket,\n            configuration.BuyEnableMarketToVendor);\n    }'''
+          new_snapshot = '''    private ScanSettings SnapshotSettings()\n    {\n        // Discovery is intentionally permissive on capital/risk. Profit, ROI, acquisition cost and\n        // holding time are findings filters in the UI rather than hidden reasons to omit results.\n        var deepLimit = Math.Clamp(configuration.BuyDeepCandidateLimit, 20, 500);\n        return new ScanSettings(\n            999_999_999,\n            0,\n            0,\n            3650,\n            100,\n            deepLimit,\n            configuration.BuyDiscoveryNameFilter ?? string.Empty,\n            configuration.BuyDiscoveryIncludeNq,\n            configuration.BuyDiscoveryIncludeHq,\n            configuration.BuyIncludeEquipment,\n            configuration.BuyUseCategoryFilter,\n            configuration.BuyIncludedCategoryIds.ToHashSet(),\n            configuration.BuyEnableMarketToMarket,\n            configuration.BuyEnableVendorToMarket,\n            configuration.BuyEnableMarketToVendor);\n    }'''
+          text = replace_required(text, old_snapshot, new_snapshot, 'buy permissive snapshot')
+          text = replace_required(text,
+              '''        int MaxInvestmentPercentPerItem,\n        int DeepCandidateLimit,\n        bool IncludeEquipment,''',
+              '''        int MaxInvestmentPercentPerItem,\n        int DeepCandidateLimit,\n        string NameFilter,\n        bool IncludeNq,\n        bool IncludeHq,\n        bool IncludeEquipment,''',
+              'buy settings record discovery fields')
+          p.write_text(text, encoding='utf-8')
+
+          # Tycoon cashflow: keep exact ledger, remove manual category classifier/aggregate UI.
+          p = Path('ShouldISell/Windows/SuiteWindow.TycoonCashflow.cs')
+          text = p.read_text(encoding='utf-8-sig')
+          replacement = '''    private void DrawTycoonCashflow()\n    {\n        if (!Plugin.PlayerState.IsLoaded || Plugin.PlayerState.ContentId == 0)\n        {\n            ImGui.TextDisabled("Log in to start the gil cashflow ledger.");\n            return;\n        }\n\n        var contentId = Plugin.PlayerState.ContentId;\n        var flows = plugin.TraderStore.GetGilFlows(contentId);\n        ImGui.TextWrapped("Cashflow records direct changes to your character's gil wallet while Should I? is running. The amount and resulting balance are the important evidence. Category analytics are intentionally deferred until Should I? can attribute categories reliably instead of asking you to classify every wallet delta manually.");\n        ImGui.TextDisabled("Market Board purchase records and retainer-sale economics remain tracked separately with item-level evidence in Purchases / Trade Positions / Closed Trades.");\n        ImGui.Spacing();\n\n        if (flows.Count == 0)\n        {\n            ImGui.TextDisabled("No wallet changes captured yet. The current gil amount is used only as a baseline; login/offline changes are never fabricated into transactions.");\n            return;\n        }\n\n        ImGui.TextDisabled("RECENT DIRECT WALLET CHANGES");\n        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;\n        if (!ImGui.BeginTable("##tycoon-cashflow-ledger", 5, flags, new Vector2(0, 430 * ImGuiHelpers.GlobalScale)))\n            return;\n\n        ImGui.TableSetupScrollFreeze(0, 1);\n        ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);\n        ImGui.TableSetupColumn("Delta", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);\n        ImGui.TableSetupColumn("Balance", ImGuiTableColumnFlags.WidthFixed, 105 * ImGuiHelpers.GlobalScale);\n        ImGui.TableSetupColumn("Source evidence", ImGuiTableColumnFlags.WidthStretch);\n        ImGui.TableSetupColumn("Note", ImGuiTableColumnFlags.WidthStretch);\n        ImGui.TableHeadersRow();\n\n        foreach (var flow in flows.Take(1000))\n        {\n            ImGui.TableNextRow();\n            ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(flow.AtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));\n            ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted($"{flow.Amount:+#,##0;-#,##0;0}g");\n            ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted($"{flow.BalanceAfter:N0}g");\n            ImGui.TableSetColumnIndex(3); ImGui.TextWrapped(string.IsNullOrWhiteSpace(flow.Source) ? "Unattributed wallet change" : flow.Source);\n            ImGui.TableSetColumnIndex(4); ImGui.TextWrapped(flow.Note);\n        }\n\n        ImGui.EndTable();\n    }\n\n'''
+          text, n = re.subn(
+              r'    private void DrawTycoonCashflow\(\)\n    \{.*?\n    private void DrawTycoonPurchases\(\)',
+              replacement + '    private void DrawTycoonPurchases()',
+              text, count=1, flags=re.S)
+          if n != 1:
+              raise RuntimeError('Could not replace Tycoon cashflow classifier block')
+          p.write_text(text, encoding='utf-8')
+
+          # Tycoon copy + direct navigation to the prefilled Purchases tab.
+          p = Path('ShouldISell/Windows/SuiteWindow.Tycoon.cs')
+          text = p.read_text(encoding='utf-8-sig')
+          text = text.replace(
+              'Tycoon is now both a gil/capital ledger and a trading laboratory. It records direct player-wallet changes while Should I? is running, keeps high-confidence Market Board purchase/sale economics separate, and still uses FIFO only for purchase lots you consider trading positions. Unknown wallet sources remain explicitly unclassified until you categorize them instead of Tycoon guessing.',
+              'Tycoon is both a gil/capital ledger and a trading laboratory. It records direct player-wallet changes while Should I? is running, keeps item-level Market Board purchase/sale economics separate, and uses FIFO only for purchase lots you consider trading positions. Unknown wallet sources stay visibly unattributed; category analytics are deferred until attribution can be reliable.')
+          text = replace_required(text,
+              '''            if (ImGui.BeginTabItem("Purchases"))\n            {\n                DrawTycoonPurchases();\n                ImGui.EndTabItem();\n            }''',
+              '''            var purchasesFlags = selectTycoonPurchases ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;\n            if (ImGui.BeginTabItem("Purchases", purchasesFlags))\n            {\n                selectTycoonPurchases = false;\n                DrawTycoonPurchases();\n                ImGui.EndTabItem();\n            }''',
+              'Tycoon Purchases navigation')
+          p.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit refactor
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: simplify official UX and Universalis discovery"
+          git push origin HEAD:feature/craft-gather-opportunities
