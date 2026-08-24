@@ -1,0 +1,76 @@
+name: Publish Should I v2.3.3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-v2.3.3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download Dalamud development files
+        shell: pwsh
+        run: |
+          $destination = "$env:AppData\XIVLauncher\addon\Hooks\dev"
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Invoke-WebRequest -Uri "https://goatcorp.github.io/dalamud-distrib/latest.zip" -OutFile "$env:RUNNER_TEMP\dalamud.zip"
+          Expand-Archive -Force "$env:RUNNER_TEMP\dalamud.zip" $destination
+
+      - name: Restore and build
+        shell: pwsh
+        run: |
+          dotnet restore .\ShouldISell\ShouldISell.csproj
+          dotnet build .\ShouldISell\ShouldISell.csproj --configuration Release --no-restore
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $package = Get-ChildItem -Path ".\ShouldISell\bin" -Filter "latest.zip" -Recurse | Select-Object -First 1
+          if (-not $package) { throw "DalamudPackager did not create latest.zip" }
+          Copy-Item $package.FullName "$env:RUNNER_TEMP\latest.zip" -Force
+          $notes = "v2.3.3: Correct Universalis history parameter names/units and separate local fetch freshness from upstream upload age. Includes the v2.3.2 vendor sell-through sizing fix."
+          gh release view v2.3.3 *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload v2.3.3 "$env:RUNNER_TEMP\latest.zip#latest.zip" --clobber
+          } else {
+            gh release create v2.3.3 "$env:RUNNER_TEMP\latest.zip#latest.zip" --title "Should I? v2.3.3" --notes $notes --target main
+          }
+
+      - name: Update custom repository manifest
+        shell: pwsh
+        run: |
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          $manifest = @(Get-Content ".\pluginmaster.json" -Raw | ConvertFrom-Json)
+          if ($manifest.Count -ne 1) { throw "Expected exactly one plugin entry." }
+          $manifest[0].AssemblyVersion = "2.3.3.0"
+          $manifest[0].DownloadLinkInstall = "https://github.com/JustPixelll/ShouldISell/releases/download/v2.3.3/latest.zip"
+          $manifest[0].DownloadLinkUpdate = "https://github.com/JustPixelll/ShouldISell/releases/download/v2.3.3/latest.zip"
+          $manifest[0].Changelog = "v2.3.3: Correct Universalis history parameter names/units and separate local fetch freshness from upstream upload age. Includes the vendor sell-through sizing fix."
+          $manifest[0].LastUpdate = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()
+          ConvertTo-Json -InputObject $manifest -Depth 10 | Set-Content ".\pluginmaster.json" -Encoding UTF8
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pluginmaster.json
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "chore: update plugin repository for v2.3.3"
+            git push origin main
+          }
