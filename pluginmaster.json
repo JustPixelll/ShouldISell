@@ -4,9 +4,9 @@
     "Name": "Should I?",
     "Punchline": "Know what to sell, what to buy, and where your gil goes.",
     "Description": "FFXIV economy intelligence suite: sell optimization, executable buy discovery, native verification, gil cashflow tracking, FIFO trading P&L, and personal Market Board analytics.",
-    "Changelog": "# Should I? v2.0.1\r\n\r\nv2.0.1 fixes the Tycoon ROI presentation that could make a perfectly ordinary portfolio look like it had a multi-thousand-percent overall return.\r\n\r\n## ROI/accounting semantics\r\n\r\n- The Tycoon headline no longer labels closed-lot ROI as though it were return on all invested gil.\r\n- **Realized return / spend** is now `realized profit ÷ all tracked Trade purchase cost`, including lots that are still open. This is the conservative top-line number that belongs beside tracked trade spend.\r\n- **Closed-trade ROI** remains the standard trade return-on-cost calculation: `realized profit ÷ cost basis of sold tracked units`. It is kept because it is the correct metric for comparing completed trades, items and strategies.\r\n- The exact **closed cost basis** and **closed net revenue** are now shown next to closed-trade ROI so the denominator is never hidden.\r\n- Closed Trades now says **ROI on cost**; Best Items and Strategies say **Closed ROI**.\r\n- Win rate is explicitly labeled as sale-event based.\r\n\r\n## Extreme ROI safety\r\n\r\nTycoon does not clamp or cosmetically suppress legitimate extreme returns. A 100g acquisition sold for 3,500g really is roughly 3,400% ROI on that closed lot.\r\n\r\nHowever, identical FFXIV items are fungible and the game does not expose provenance for a sold unit. If you bought one unit while already owning crafted/gathered/gifted copies, FIFO can only be an accounting convention. When aggregate closed ROI is extremely high, Tycoon now warns you to verify the Closed Trades row and mark the purchase **Personal** if that sale did not actually come from the tracked purchase lot.\r\n\r\nThis keeps unknown cost basis unknown instead of silently turning ambiguous stock into fictional trading profit.",
+    "Changelog": "# Should I? v2.0.2\r\n\r\n## Sales History — realized-price benchmark\r\n\r\n- Adds a new benchmark overview comparing your captured net sale prices with Phoenix 90-day historical Market Board prices for the same item/HQ variant.\r\n- Shows your average realized net/unit, the historical unit-weighted average and unit-weighted median, per-unit differences, and total gil difference across the units you actually sold.\r\n- Adds portfolio-level totals: actual covered net gil, the equivalent historical-average/median benchmark, and the aggregate difference in gil and percent.\r\n- Historical market prices are converted to a conservative after-5%-seller-tax net so they are comparable with the personal sales ledger.\r\n- Includes explicit coverage/sample counts and avoids claiming causal profit: this is an observed market benchmark, not proof that every gil of difference was created by Should I?.\r\n- Adds a dedicated Universalis history refresh for sold items, including items that are no longer in your inventory.\r\n\r\n## Current Listings — retainer filter\r\n\r\n- Current Listings can now be filtered to All retainers or one individual cached retainer.\r\n- The retainer filter composes with item search, rating, stars and payout filters.\r\n- Reset restores All retainers.",
     "InternalName": "ShouldISell",
-    "AssemblyVersion": "2.0.1.0",
+    "AssemblyVersion": "2.0.2.0",
     "RepoUrl": "https://github.com/JustPixelll/ShouldISell",
     "ApplicableVersion": "any",
     "CategoryTags": [
@@ -18,10 +18,10 @@
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/overview.png",
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/details.png"
     ],
-    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.0.1/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.0.1/latest.zip",
+    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.0.2/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.0.2/latest.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "LastUpdate": "1787561217"
+    "LastUpdate": "1787563014"
   }
 ]
