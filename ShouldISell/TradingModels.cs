@@ -119,28 +119,28 @@ public sealed record BuyOpportunity
     public bool IsHq { get; init; }
     public BuyOpportunityKind Kind { get; init; }
     public string StrategyLabel { get; init; }
-    public int Stars { get; init; }
-    public double OpportunityScore { get; init; }
+    public int Stars { get; private set; }
+    public double OpportunityScore { get; private set; }
     public double Confidence { get; init; }
     public int ExistingQuantity { get; init; }
-    public int AcquireQuantity { get; init; }
-    public long AcquisitionCost { get; init; }
+    public int AcquireQuantity { get; private set; }
+    public long AcquisitionCost { get; private set; }
     public double AverageAcquisitionUnitCost { get; init; }
     public uint? SuggestedExitUnitPrice { get; init; }
     public uint? NetExitUnitPrice { get; init; }
     public int SuggestedExitStackSize { get; init; }
-    public int SuggestedExitListingCount { get; init; }
-    public double PotentialProfit { get; init; }
-    public double RiskAdjustedProfit { get; init; }
+    public int SuggestedExitListingCount { get; private set; }
+    public double PotentialProfit { get; private set; }
+    public double RiskAdjustedProfit { get; private set; }
     public double Roi { get; init; }
     public double? EstimatedFirstSaleDays { get; init; }
-    public double? EstimatedLiquidationDays { get; init; }
+    public double? EstimatedLiquidationDays { get; private set; }
     public uint? MaximumRecommendedBuyPrice { get; init; }
     public double UnitsPerDay { get; init; }
     public int SalesSampleCount { get; init; }
     public DateTimeOffset? MarketFreshnessUtc { get; init; }
     public IReadOnlyList<BuyAcquisitionLot> AcquisitionLots { get; init; }
-    public IReadOnlyList<string> Notes { get; init; }
+    public IReadOnlyList<string> Notes { get; private set; }
     public DateTimeOffset AnalysedAtUtc { get; init; }
 
     private void ApplyVendorWorkingInventoryPolicy(
