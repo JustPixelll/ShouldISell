@@ -110,8 +110,8 @@ public sealed partial class SuiteWindow
 
     private void DrawGatherModule()
     {
-        ImGui.TextWrapped("Should I Gather? asks whether a gatherable material is economically attractive to farm and sell. MIN/BTN eligibility, node location, hidden/timed status and market demand are real game/market inputs; active yield is deliberately shown as a range because gear, GP rotations, travel and execution vary.");
-        ImGui.TextDisabled("Fishing is intentionally not ranked in v1. Rod fishing needs catch/bait/weather probability telemetry before a gil/minute number would be honest.");
+        ImGui.TextWrapped("Should I Gather? asks whether a gatherable material is economically attractive to farm and sell. MIN/BTN eligibility, node location, hidden/timed status and market demand are real game/market inputs. The current active-yield figure is a generic baseline; uncertainty is expressed through confidence instead of an arbitrary ±35% range.");
+        ImGui.TextDisabled("Fishing is intentionally not ranked in v1. A real throughput range will return only when it is derived from node topology or observed personal sessions rather than generic padding.");
         ImGui.Spacing();
 
         DrawProductionScanButtons(primary: "gather");
@@ -124,7 +124,7 @@ public sealed partial class SuiteWindow
             .ToList();
 
         ImGui.TextDisabled($"{rows.Count:N0} validated MIN/BTN opportunity(ies). Click an item for assumptions and locations.");
-        if (ImGui.BeginTable("##gather-opportunities", 9,
+        if (ImGui.BeginTable("##gather-opportunities", 8,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable |
                 ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp,
                 new System.Numerics.Vector2(0, 360)))
@@ -136,7 +136,6 @@ public sealed partial class SuiteWindow
             ImGui.TableSetupColumn("Location");
             ImGui.TableSetupColumn("Availability");
             ImGui.TableSetupColumn("g/active min");
-            ImGui.TableSetupColumn("Range");
             ImGui.TableSetupColumn("Units/day");
             ImGui.TableSetupColumn("Confidence");
             ImGui.TableHeadersRow();
@@ -153,7 +152,6 @@ public sealed partial class SuiteWindow
                 ImGui.TableNextColumn(); ImGui.TextUnformatted(row.Locations.FirstOrDefault() ?? "Unknown");
                 ImGui.TableNextColumn(); ImGui.TextUnformatted(row.IsTimed ? "Timed" : row.IsHidden ? "Hidden" : "Regular");
                 ImGui.TableNextColumn(); ImGui.TextUnformatted(Gil(row.EstimatedGilPerActiveMinute));
-                ImGui.TableNextColumn(); ImGui.TextUnformatted($"{row.EstimatedGilPerActiveMinuteLow:N0}–{row.EstimatedGilPerActiveMinuteHigh:N0}g");
                 ImGui.TableNextColumn(); ImGui.TextUnformatted($"{row.UnitsPerDay:0.##}");
                 ImGui.TableNextColumn(); ImGui.TextUnformatted(Percent(row.Confidence));
             }
@@ -168,13 +166,16 @@ public sealed partial class SuiteWindow
     {
         ImGui.Separator();
         ImGui.TextUnformatted($"GATHER MODEL — {row.Item.Name}");
-        ImGui.TextWrapped($"{row.GathererName} {row.RequiredLevel}; your recorded job level is {row.PlayerLevel}. Realistic sale reference ~{row.RealisticUnitSalePrice:N0}g/unit. Modeled active yield {row.EstimatedUnitsPerActiveMinuteLow:0.0}–{row.EstimatedUnitsPerActiveMinuteHigh:0.0}/min, equivalent to ~{row.EstimatedGilPerActiveMinuteLow:N0}–{row.EstimatedGilPerActiveMinuteHigh:N0}g/active min after seller tax.");
+        ImGui.TextWrapped($"{row.GathererName} {row.RequiredLevel}; your recorded job level is {row.PlayerLevel}. Realistic sale reference ~{row.RealisticUnitSalePrice:N0}g/unit. Generic active-yield baseline ~{row.EstimatedUnitsPerActiveMinute:0.0}/min, equivalent to ~{row.EstimatedGilPerActiveMinute:N0}g/active min after seller tax.");
         ImGui.TextDisabled(row.IsTimed
             ? "Availability: timed/ephemeral node detected. Waiting time is NOT treated as active gathering time."
             : row.IsHidden ? "Availability: hidden-node friction detected." : "Availability: regular node model.");
+        ImGui.TextDisabled("Throughput uncertainty currently belongs in the confidence score. A numerical range will only be shown again once node density/route geometry or personal session telemetry can support it.");
         if (row.Locations.Count > 0)
             ImGui.TextWrapped($"Known locations: {string.Join(", ", row.Locations.Take(8))}{(row.Locations.Count > 8 ? " …" : string.Empty)}");
-        foreach (var note in row.Notes)
+        foreach (var note in row.Notes.Where(x =>
+                     !x.StartsWith("Generic active-yield model:", StringComparison.Ordinal) &&
+                     !x.Contains("effort estimate is a range", StringComparison.OrdinalIgnoreCase)))
             ImGui.BulletText(note);
     }
 
