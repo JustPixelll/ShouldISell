@@ -302,7 +302,7 @@ public sealed class TraderAnalyzer
         double medianHoldingDays)
     {
         if (closed.Count < 3)
-            return ("Building history", "Tycoon has started tracking your real Market Board cost basis. A clearer trading style will emerge after a few matched purchases and retainer sales.");
+            return ("Building history", "Tycoon has started tracking your real acquisition cost basis. A clearer trading style will emerge after a few matched purchases and retainer sales.");
 
         var totalClosedUnits = Math.Max(1, closed.Sum(x => x.Quantity));
         var vendorUnits = strategies

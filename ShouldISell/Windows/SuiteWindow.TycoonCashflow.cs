@@ -280,7 +280,12 @@ public sealed partial class SuiteWindow
         ImGui.TextDisabled("If the exact wallet decrease was captured as an Unclassified event in the last five minutes, Should I? will relabel that existing event as Vendor. If no exact match exists, no synthetic wallet transaction is created.");
 
         ImGui.SetNextItemWidth(360 * ImGuiHelpers.GlobalScale);
-        ImGui.InputTextWithHint("##vendor-purchase-search", "Search normal-gil vendor item...", ref vendorPurchaseSearch, 128);
+        if (ImGui.InputTextWithHint("##vendor-purchase-search", "Search normal-gil vendor item...", ref vendorPurchaseSearch, 128) &&
+            vendorPurchaseItemId != 0 &&
+            !string.Equals(plugin.Catalog.Get(vendorPurchaseItemId).Name, vendorPurchaseSearch, StringComparison.CurrentCultureIgnoreCase))
+        {
+            vendorPurchaseItemId = 0;
+        }
         var matches = string.IsNullOrWhiteSpace(vendorPurchaseSearch)
             ? new List<MarketCatalogEntry>()
             : plugin.Catalog.GetAllMarketableEntries()
@@ -334,10 +339,14 @@ public sealed partial class SuiteWindow
 
         if (ImGui.Button("RECORD VENDOR PURCHASE"))
         {
-            var prediction = plugin.BuyScanner.GetVendorOpportunities()
-                .Where(x => x.WorldId == Plugin.PlayerState.CurrentWorld.RowId && x.Item.ItemId == vendorPurchaseItemId && !x.IsHq)
+            var prediction = GetCurrentWorldVendorOpportunities()
+                .Where(x => x.Item.ItemId == vendorPurchaseItemId && !x.IsHq)
                 .OrderByDescending(x => x.OpportunityScore)
                 .FirstOrDefault();
+            var predictionQuantityMatches = prediction is not null && prediction.AcquireQuantity == vendorPurchaseQuantity;
+            var predictedProfit = prediction?.NetExitUnitPrice is { } predictedNet
+                ? predictedNet * (double)vendorPurchaseQuantity - total
+                : (double?)null;
             var now = DateTimeOffset.UtcNow;
             var purchase = new PersonalPurchase(
                 contentId,
@@ -353,8 +362,8 @@ public sealed partial class SuiteWindow
                 prediction?.StrategyLabel ?? "Vendor -> Market (manual)",
                 prediction?.OpportunityScore,
                 prediction?.SuggestedExitUnitPrice,
-                prediction?.EstimatedLiquidationDays,
-                prediction?.PotentialProfit,
+                predictionQuantityMatches ? prediction?.EstimatedLiquidationDays : null,
+                predictedProfit,
                 prediction?.AnalysedAtUtc,
                 PurchaseSourceKind.VendorManual);
 
