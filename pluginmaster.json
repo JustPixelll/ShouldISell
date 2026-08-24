@@ -4,9 +4,9 @@
     "Name": "Should I?",
     "Punchline": "Know what to sell, buy, craft, gather — and what to do next.",
     "Description": "FFXIV economy decision support for Dalamud. Ranks selling, buying, crafting and gathering opportunities using Universalis, inventory/Market Board observations, vendor economics and your own trading history. Includes native item-tooltip insights, inventory right-click lookups, unified Opportunities, cashflow/FIFO analytics and personal sales/listing history. No automated buying, selling, repricing or queued native Market Board scanning.",
-    "Changelog": "v2.3.0 testing release: native ItemDetail tooltip insights, first-run setup, current launcher metadata/docs/assets, cleaner official-safe architecture, and launch-preparation polish.",
+    "Changelog": "v2.3.1 testing release: public integration cleanup, neutral optional local market-data IPC, and official testing-submission preparation.",
     "InternalName": "ShouldISell",
-    "AssemblyVersion": "2.3.0.0",
+    "AssemblyVersion": "2.3.1.0",
     "RepoUrl": "https://github.com/JustPixelll/ShouldISell",
     "ApplicableVersion": "any",
     "CategoryTags": [
@@ -18,10 +18,10 @@
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/overview.png",
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/details.png"
     ],
-    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.3.0/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.3.0/latest.zip",
+    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.3.1/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.3.1/latest.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "LastUpdate": "1787599050"
+    "LastUpdate": "1787602025"
   }
 ]
