@@ -1,0 +1,31 @@
+name: Patch Universalis PR
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'fix/universalis-request-semantics'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Patch scanner and cache semantics
+        run: |
+          python3 -c 'from pathlib import Path; p=Path("ShouldISell/Services/BuyOpportunityScanner.cs"); s=p.read_text(); s=s.replace("new ProductInfoHeaderValue(\"ShouldI\", \"2.1.0\")", "new ProductInfoHeaderValue(\"ShouldI\", \"2.3.3\")"); old="        var entriesWithin = 90 * 24 * 60 * 60;\n        using (var historyResponse = await http.GetAsync(\n                   $\"api/v2/history/{worldId}/{joined}?entries=1800&entriesWithin={entriesWithin}&statsWithin={entriesWithin}\", token))"; new="        var entriesWithinSeconds = 90 * 24 * 60 * 60;\n        var statsWithinMilliseconds = entriesWithinSeconds * 1000L;\n        using (var historyResponse = await http.GetAsync(\n                   $\"api/v2/history/{worldId}/{joined}?entriesToReturn=1800&entriesWithin={entriesWithinSeconds}&statsWithin={statsWithinMilliseconds}\", token))"; assert old in s or "statsWithinMilliseconds" in s; p.write_text(s.replace(old,new))'
+          python3 -c 'from pathlib import Path; p=Path("ShouldISell/Services/LocalStore.cs"); s=p.read_text(); old="            snapshot.Listings = listings;\n            // No upload timestamp means Universalis has no trustworthy observation time. Keep\n            // this null so the experimental queue can deliberately refresh the obscure item.\n            snapshot.ListingObservedAtUtc = uploadTime;\n            snapshot.UniversalisLastUploadUtc = uploadTime;"; new="            snapshot.Listings = listings;\n            // Cache freshness is when Should I? successfully fetched this snapshot, not when\n            // Universalis last received an upstream upload. Preserve the upstream timestamp\n            // separately so scoring/UI can still reason about genuinely stale market evidence.\n            snapshot.ListingObservedAtUtc = DateTimeOffset.UtcNow;\n            snapshot.UniversalisLastUploadUtc = uploadTime;"; assert old in s or "Cache freshness is when Should I? successfully fetched this snapshot" in s; p.write_text(s.replace(old,new))'
+      - name: Commit if changed
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name JustPixelll
+          git config user.email pixelgod56@gmail.com
+          git add ShouldISell/Services/BuyOpportunityScanner.cs ShouldISell/Services/LocalStore.cs
+          git diff --cached --check
+          git commit -m "Fix remaining Universalis request and cache semantics"
+          git push origin HEAD:${{ github.head_ref }}
