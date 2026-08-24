@@ -43,6 +43,7 @@ public sealed class Plugin : IDalamudPlugin
     public ExperimentalRefreshEngine RefreshEngine { get; }
     public RetainerListingAttentionOverlay ListingAttentionOverlay { get; }
     public BuyOpportunityScanner BuyScanner { get; }
+    public ProductionOpportunityScanner ProductionScanner { get; }
     public MarketPurchaseObserver PurchaseObserver { get; }
     public TraderAnalyzer TraderAnalyzer { get; }
     public ListingHistoryTracker ListingHistory { get; }
@@ -70,6 +71,7 @@ public sealed class Plugin : IDalamudPlugin
         RefreshEngine = new ExperimentalRefreshEngine(Configuration, Framework, PlayerState, Catalog, Inventory, Store, MarketObserver, SellScanContext, Log);
         ListingAttentionOverlay = new RetainerListingAttentionOverlay(GameGui, PlayerState, Coordinator, Log);
         BuyScanner = new BuyOpportunityScanner(Configuration, PlayerState, Catalog, Inventory, Scores, Log);
+        ProductionScanner = new ProductionOpportunityScanner(PlayerState, DataManager, Catalog, Inventory, Log);
         PurchaseObserver = new MarketPurchaseObserver(MarketBoard, PlayerState, TraderStore, BuyScanner, Log);
         TraderAnalyzer = new TraderAnalyzer(PlayerState, TraderStore, Store, Coordinator, Catalog);
         ListingHistory = new ListingHistoryTracker(PluginInterface, PlayerState, Store, Log);
@@ -80,7 +82,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open Should I?. /shouldi sell, /shouldi buy, /shouldi tycoon, /shouldi scan, /shouldi fetch, /shouldi refresh, /shouldi listings, /shouldi livescan, /shouldi audit, /shouldi stop",
+            HelpMessage = "Open Should I?. /shouldi sell, /shouldi buy, /shouldi craft, /shouldi gather, /shouldi opportunities, /shouldi tycoon, /shouldi scan, /shouldi fetch, /shouldi refresh, /shouldi listings, /shouldi livescan, /shouldi audit, /shouldi stop",
         });
         CommandManager.AddHandler(LegacySellCommand, new CommandInfo(OnLegacySellCommand)
         {
@@ -99,6 +101,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         Framework.Update -= OnFrameworkUpdate;
         PurchaseObserver.Dispose();
+        ProductionScanner.Dispose();
         ListingHistory.Dispose();
         BuyScanner.Dispose();
         RefreshEngine.Dispose();
@@ -153,6 +156,17 @@ public sealed class Plugin : IDalamudPlugin
             case "buy":
                 suiteWindow.OpenModule(ShouldIModule.Buy);
                 break;
+            case "craft":
+                suiteWindow.OpenModule(ShouldIModule.Craft);
+                break;
+            case "gather":
+                suiteWindow.OpenModule(ShouldIModule.Gather);
+                break;
+            case "opportunities":
+            case "opportunity":
+            case "do":
+                suiteWindow.OpenModule(ShouldIModule.Opportunities);
+                break;
             case "tycoon":
                 suiteWindow.OpenModule(ShouldIModule.Tycoon);
                 break;
@@ -177,6 +191,7 @@ public sealed class Plugin : IDalamudPlugin
             case "stop":
                 RefreshEngine.Stop("Stopped by user.");
                 BuyScanner.CancelScan();
+                ProductionScanner.CancelScan();
                 break;
             default:
                 suiteWindow.Toggle();
