@@ -27,7 +27,7 @@ public sealed partial class MainWindow
         if (!ImGui.CollapsingHeader("Should I? realized-price benchmark##sales-market-benchmark", ImGuiTreeNodeFlags.DefaultOpen))
             return;
 
-        ImGui.TextWrapped("Compare the net prices you actually realized with Phoenix's cached 90-day Market Board history for the same item/HQ variants. The historical average is unit-weighted; the median is unit-weighted too. Both market prices are converted to a conservative after-5%-seller-tax net so they are comparable with your captured net gil.");
+        ImGui.TextWrapped("Compare the net prices you actually realized with your current world's cached 90-day Market Board history for the same item/HQ variants. The historical average is unit-weighted; the median is unit-weighted too. Both market prices are converted to a conservative after-5%-seller-tax net so they are comparable with your captured net gil.");
         ImGui.TextDisabled("This is a benchmark, not causal proof that the addon created the entire difference. Market prices move over time, your own sales may be part of Universalis history, and only variants with usable 90-day history are included.");
 
         if (!plugin.Coordinator.IsFetching)
@@ -74,7 +74,7 @@ public sealed partial class MainWindow
             SummaryCell("Your covered net", Gil(actualNet));
             SummaryCell("90d median benchmark", Gil(medianBenchmark));
             SummaryCell("Difference vs median", SignedGil(deltaMedian) + RelativeDifference(deltaMedian, medianBenchmark));
-            SummaryCell("Market basis", "Phoenix • trailing 90d");
+            SummaryCell("Market basis", "Current world • trailing 90d");
             ImGui.EndTable();
         }
 
