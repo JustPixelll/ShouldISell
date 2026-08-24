@@ -2,11 +2,11 @@
   {
     "Author": "JustPixelll",
     "Name": "Should I?",
-    "Punchline": "Know what to sell, what to buy, and where your gil goes.",
-    "Description": "FFXIV economy intelligence suite: sell optimization, executable buy discovery, native verification, gil cashflow tracking, FIFO trading P&L, and personal Market Board analytics.",
-    "Changelog": "v2.2.0 test-install: Craft, Gather, Opportunities, Universalis-only refresh UX, Buy lane redesign, Tycoon cleanup, item hover/context integration, and Deep Mine split.",
+    "Punchline": "Know what to sell, buy, craft, gather — and what to do next.",
+    "Description": "FFXIV economy decision support for Dalamud. Ranks selling, buying, crafting and gathering opportunities using Universalis, inventory/Market Board observations, vendor economics and your own trading history. Includes native item-tooltip insights, inventory right-click lookups, unified Opportunities, cashflow/FIFO analytics and personal sales/listing history. No automated buying, selling, repricing or queued native Market Board scanning.",
+    "Changelog": "v2.3.0 preparation: native FFXIV item-tooltip integration, first-run setup, refreshed launcher/repository presentation, and official-submission readiness work.",
     "InternalName": "ShouldISell",
-    "AssemblyVersion": "2.2.0.0",
+    "AssemblyVersion": "2.3.0.0",
     "RepoUrl": "https://github.com/JustPixelll/ShouldISell",
     "ApplicableVersion": "any",
     "CategoryTags": [
