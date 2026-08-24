@@ -3,7 +3,7 @@
     "Author": "JustPixelll",
     "Name": "Should I?",
     "Punchline": "Know what to sell, buy, craft, gather — and what to do next.",
-    "Description": "FFXIV economy decision support for Dalamud. Ranks selling, buying, crafting and gathering opportunities using Universalis, inventory/Market Board observations, vendor economics and your own trading history. Includes native item-tooltip insights, inventory right-click lookups, unified Opportunities, cashflow/FIFO analytics and personal sales/listing history. No automated buying, selling, repricing or queued native Market Board scanning.",
+    "Description": "FFXIV economy decision support for Dalamud. Ranks selling, buying, crafting and gathering opportunities using Universalis, inventory/Market Board observations, vendor economics and your own trading history. Includes native item-tooltip insights, inventory right-click lookups, unified Opportunities, cashflow/FIFO analytics and personal sales/listing history. No automated buying, selling, repricing or queued native Market Board scanning. The plugin icon was created with AI assistance.",
     "Changelog": "v2.3.2: Vendor opportunities now use profit-adjusted working-inventory sell-through limits instead of multi-year stockpile sizing.",
     "InternalName": "ShouldISell",
     "AssemblyVersion": "2.3.2.0",
@@ -13,7 +13,7 @@
       "utility"
     ],
     "DalamudApiLevel": 15,
-    "IconUrl": "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/icon.png",
+    "IconUrl": "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/icon-installer.png",
     "ImageUrls": [
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/overview.png",
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/details.png"
@@ -22,6 +22,6 @@
     "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.3.2/latest.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "LastUpdate": "1787603959"
+    "LastUpdate": "1787605980"
   }
 ]
