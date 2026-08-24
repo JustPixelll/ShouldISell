@@ -5,11 +5,11 @@
 <h1 align="center">Should I?</h1>
 
 <p align="center">
-  <strong>Know what to sell. Know what to buy. Know where your gil goes.</strong>
+  <strong>Know what to sell, buy, craft, gather — and what to do next.</strong>
 </p>
 
 <p align="center">
-  An FFXIV economy intelligence suite for Dalamud — Market Board decisions, gil cashflow, trading P&amp;L and personal market analytics.
+  FFXIV economy decision support for Dalamud: market analysis, inventory intelligence, trading analytics and personal economic history in one plugin.
 </p>
 
 <p align="center">
@@ -17,571 +17,312 @@
   <a href="https://github.com/JustPixelll/ShouldISell/actions/workflows/build.yml"><img alt="Build" src="https://github.com/JustPixelll/ShouldISell/actions/workflows/build.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-BSD--3--Clause-blue.svg"></a>
   <img alt="Dalamud API 15" src="https://img.shields.io/badge/Dalamud-API%2015-6f42c1">
-  <img alt="Experimental" src="https://img.shields.io/badge/status-experimental-orange">
 </p>
 
 ---
 
-## The Market Board gives you prices. Should I? tries to answer the harder question: **what should you actually do?**
+## The idea
 
-A cheap item is not automatically a good buy. A high-priced item is not automatically worth selling. A profitable-looking flip can still trap your gil for days, and a stack of materials can be worth far more in the right listing size than in the wrong one.
+FFXIV gives you prices. **Should I?** tries to answer the more useful question: **what should you actually do with them?**
 
-**Should I?** combines live FFXIV Market Board observations, Universalis history, your inventory and retainer data, vendor economics, sale velocity, stack behavior, capital requirements and your own trading history to turn raw market data into practical decisions.
+A high Market Board price does not automatically make an item good to sell. A low listing does not automatically make it a good buy. Crafting can look profitable until ingredient opportunity cost is counted. Gathering can look lucrative until demand is too thin to absorb the result. A profitable flip can still tie up your gil for days.
 
-It is one plugin with three connected modules:
+Should I? combines Universalis market data, game data, inventory/retainer observations, vendor economics, sale velocity, stack behavior and your own trading history into practical, comparable recommendations.
 
-| Module | Question it answers | What you get |
-|---|---|---|
-| **Should I Sell?** | *What in my inventory is actually worth listing?* | Sell rating, suggested price, stack size, after-tax value, listing audit and sales history |
-| **Should I Buy?** | *What can I buy right now with a reasonable chance of making gil?* | Budget-aware opportunities, ROI/profit/liquidity scoring, exact acquisition packages and live verification |
-| **Should I Tycoon?** | *Where does my gil come from, where does it go, and are my trades actually working?* | Wallet cashflow, categorized income/spend, trade positions, FIFO P&L, strategy performance, sales/listing insights and model calibration |
-
-> **Should I? is decision support, not automation.** It does not automatically buy items, sell items, change your listings, or promise profit.
+> **Should I? is decision support, not automation.** It never automatically buys, sells, reprices, clicks listings, or queues native FFXIV Market Board searches.
 
 ---
 
-## Why use it?
+## Modules
 
-FFXIV's Market Board is full of situations where the obvious answer is wrong.
+| Module | Core question | Main outputs |
+|---|---|---|
+| **Should I Sell?** | What I already own is actually worth listing? | Sell rating, suggested price, stack size, expected after-tax value, current-listing review |
+| **Should I Buy?** | Which current opportunities are worth acquiring? | Separate Market Board / Vendor lanes, acquisition package, profit, ROI, liquidity, confidence |
+| **Should I Craft?** | Is crafting this better than buying its inputs / intermediates? | Recursive make-vs-buy/vendor routing, economic vs cash material cost, profit, liquidity |
+| **Should I Gather?** | Which things I can gather are economically attractive? | MIN/BTN accessibility, market value, demand, estimated gil per active minute, confidence |
+| **Opportunities** | What is the best economic action available right now? | Unified Buy / Craft / Gather / Craft+Gather ranking |
+| **Should I Tycoon?** | What is actually happening to my gil and trades? | Wallet cashflow, purchases, open positions, FIFO P&L, sales/listing insights, model accuracy |
 
-- You own 2,000 crafting materials across several retainers. Which ones are worth the listing slots **today**?
-- An item is selling for 40,000g and several listings at 20,000g look tempting. Is buying them a real flip, or are you just locking up capital for a week?
-- A 99-stack sells, but buyers historically prefer 10s and 20s. Is splitting the stack worth the effort?
-- A vendor item sells for 50× its NPC price. Is that useful convenience arbitrage, and how much should you actually stock?
-- A flip shows 150% theoretical ROI, but requires six sequential listings before your original capital is recovered. Is it still a good trade?
-- You have been trading for two weeks. Which strategies actually made you gil, and which only *looked* good when you bought them?
-
-Should I? is built around these kinds of questions.
+The modules share the same local inventory, market and personal-trading data rather than operating as unrelated calculators.
 
 ---
 
 # Should I Sell?
 
-Turn everything the plugin knows you own into a ranked selling audit.
+Should I Sell? turns the marketable inventory Should I? has observed into a ranked selling audit.
 
 <p align="center">
   <img src="images/overview.png" alt="Should I Sell? owned-items overview" width="900">
 </p>
 
-### What it does
+It can:
 
-- Rates marketable owned items with **1–5 stars** plus a stricter **0–100 sell-opportunity score**.
-- Suggests a realistic **Market Board unit price** using recent sales, current listings, trend, supply, demand and vendor economics.
-- Suggests a **stack size** based on historical buyer quantities, buyer spend, convenience premiums, sell-through and listing fragmentation.
-- Provides a **low-maintenance stack alternative** when fewer listings may be worth a small pricing compromise.
-- Shows the expected **after-tax payout of one recommended listing**, not only the theoretical value of your entire stockpile.
-- Audits your **current retainer listings** against the current recommendation and shows repricing deltas.
-- Tracks known inventory across player bags, saddlebags and previously observed retainers using persisted local snapshots.
-- Highlights inventory that is already listed so you do not accidentally treat listed stock as untouched stock.
-- Supports **location filtering**: player inventory, all retainers, or individual cached retainers.
-- Captures your **personal sales history** from live retainer-sale events and exact retainer history reconciliation.
-- Adds a retainer-list **attention overlay** for listings whose price or stack recommendation deserves attention.
-- Supports targeted live scans as well as a deliberately slow **FULL LIVE AUDIT — ALL OWNED** for a fresh audit of everything known.
+- rate items with **1–5 stars** plus a stricter **0–100 opportunity score**;
+- suggest a realistic Market Board unit price from current supply, sold-price history, demand, stability and trend;
+- recommend stack sizes from historical buyer quantities, buyer spend and listing-fragmentation cost;
+- show the expected after-tax value of **one recommended listing**;
+- compare current retainer listings with the current recommendation;
+- track known inventory across player bags, saddlebags and observed retainers;
+- preserve previously observed retainer snapshots locally when those containers are no longer loaded;
+- capture personal retainer sales where FFXIV exposes reliable evidence;
+- show a small attention overlay for listings whose price/stack plan deserves another look.
 
-<details>
-<summary><strong>Open a detailed Should I Sell? item-analysis preview</strong></summary>
-
-<p align="center">
-  <img src="images/details.png" alt="Should I Sell? detailed item analysis" width="900">
-</p>
-
-</details>
-
-### Good uses for Should I Sell?
-
-**Retainer cleanup:** load all retainers once, then sort your entire known stock by practical selling quality instead of checking items one by one.
-
-**Listing maintenance:** compare current retainer prices to the model and focus only on listings that meaningfully need attention.
-
-**Stack optimization:** identify markets where buyers prefer smaller convenience stacks or where a large stack reduces needless listing work.
-
-**Vendor-floor protection:** avoid listing something below a guaranteed NPC exit when the Market Board economics do not justify it.
+Market refreshes in Should I? are **Universalis-only**. There are no Deep Scan / native queued Market Board controls inside this plugin.
 
 ---
 
 # Should I Buy?
 
-Should I Buy? scans for **executable purchases**, not merely items whose historical average is higher than the current lowest listing.
+Should I Buy? is split into two deliberately similar lanes:
 
-It starts with broad Universalis discovery across the selected marketable universe on your **current world**, then spends detailed requests only on the strongest candidates. The result is a ranked list of opportunities that fit the budget and risk limits you choose.
+### Market Board Opportunities
 
-### Supported opportunity types
+Finds Market → Market strategies such as normal flips, undercut layers, split-stack/consolidation opportunities and Market → Vendor guaranteed-floor situations where supported.
 
-| Strategy | Idea |
-|---|---|
-| **Market → Market** | Buy genuinely underpriced Market Board stock and resell it |
-| **Undercut sweep** | Remove a shallow cheap layer when the remaining market and history support the higher exit |
-| **Buy & split** | Buy oversized cheap stacks and resell in historically stronger smaller stacks |
-| **Buy & consolidate** | Combine small acquisition lots into a more useful selling package |
-| **Vendor → Market** | Buy from a normal gil NPC vendor and sell the convenience premium on the Market Board |
-| **Market → Vendor** | Buy below guaranteed NPC buyback value for an immediate deterministic exit |
+### Vendor Opportunities
 
-### The rating is deliberately stricter than “profit > 0”
+Finds renewable normal-gil Vendor → Market convenience opportunities without pretending NPC supply is scarce.
 
-A recommendation considers:
+Both tabs follow the same workflow:
 
-- **ROI** — return relative to the gil committed.
-- **Absolute potential profit** — because 500% on 200g is not the same opportunity as 30% on 100,000g.
-- **Liquidity / expected holding time** — how long the position may tie up your gil.
-- **Price advantage** — how strong the acquisition is relative to the modeled exit.
-- **Demand and stability** — whether the market has enough real evidence behind it.
-- **Confidence** — quality and freshness of the available evidence.
-- **Execution friction** — how many acquisition/listing actions the strategy requires.
-- **Capital recovery** — whether one realistic active listing can recover a meaningful share of your investment.
+1. **Discovery filters** decide what Universalis should inspect.
+2. Start the Universalis analysis.
+3. **Findings filters** decide which completed opportunities you want to see.
+4. Inspect the ranked table or open an item detail page.
 
-Should I Buy? shows **potential profit** separately from **risk-adjusted profit** so a huge theoretical number cannot hide a fragile execution plan.
+Findings filters include practical fields such as rating, profit, ROI, acquisition cost, liquidation estimate, quality/strategy and whether you have already bought/tracked the opportunity.
 
-### One-active-listing capital model
+Should I? can capture Market Board purchases that FFXIV exposes and tie them back to the opportunity. Vendor acquisitions can be manually confirmed into Tycoon with the recommendation pre-filled so a real cost basis exists without inventing one.
 
-FFXIV allows a maximum of **99 units in one Market Board listing**. More importantly, a player usually does not want to occupy multiple retainer slots with the same item just to realize a theoretical liquidation value.
+---
 
-Should I Buy? therefore models practical capital deployment around roughly **one active listing per item/HQ variant**, including sequential listing cycles and how quickly the first realistic sale can recover the original acquisition cost.
+# Should I Craft?
 
-A giant cheap stockpile can still have large eventual profit while receiving a poor recommendation because too much gil would remain trapped behind future listing cycles.
+Should I Craft? works from recipes your current crafter levels can perform and asks whether the result is economically attractive.
 
-### Renewable vendor supply safety
+The important distinction is **cash cost vs economic cost**:
 
-NQ items sold by a normal gil NPC vendor are **not** treated like scarce Market Board supply.
+- an ingredient you already own can reduce the **cash required** to craft;
+- but owned materials are not treated as free — they still have an **opportunity value** because you could potentially sell them instead.
 
-If Copper Ore, Garlean Garlic or another normal vendor item has cheap player listings, buying those listings out does not create durable scarcity: another player can simply return to the vendor, buy more and relist them.
+For ingredients/intermediates, the scanner can recursively compare Market Board acquisition, normal-gil vendor purchase and crafting. The result includes economic material cost, cash material cost, expected net sale value, economic profit / ROI, market velocity/liquidation and the ingredient-by-ingredient acquisition plan.
 
-For that reason:
+Current production economics are intentionally conservative and initially NQ-to-NQ. Master-recipe/specialist/unlock coverage and personally learned craft timing remain areas for further refinement.
 
-- normal-gil vendor NQ items are excluded from Market → Market buyouts, undercut sweeps, buy & split and buy & consolidate opportunities that depend on clearing player supply;
-- **Vendor → Market** remains valid, because the strategy deliberately acquires from the renewable vendor source itself;
-- Vendor → Market targets only one working listing, up to **99 units**, rather than recommending a warehouse full of replenishable NPC stock;
-- HQ remains eligible for normal market analysis because the vendor does not replenish HQ items;
-- Market → Vendor remains valid when the NPC buyback creates a genuine guaranteed exit.
+---
 
-### LIVE VERIFY and native Deep Scan
+# Should I Gather?
 
-Universalis is excellent for broad discovery and historical context, but the final purchase decision may depend on a listing that changed seconds ago.
+Should I Gather? currently focuses on MIN / BTN opportunities that can be resolved reliably from game data.
 
-Should I Buy? therefore has a separate FFXIV-native verification path:
+It combines your gatherer level, gathering source/location data, normal/hidden/timed classification, realistic sale value, recent demand/stability and a deliberately generic active gathering-throughput baseline.
 
-- **LIVE VERIFY THIS ITEM ONLY** refreshes one selected recommendation.
-- **DEEP SCAN TOP N** walks the strongest currently filtered opportunities through native FFXIV ItemSearch one by one.
-- Exact acquisition **listing ID, unit price and quantity** are checked where the strategy depends on specific listings.
-- If the package changed, the opportunity is demoted rather than continuing to look executable.
-- Fresh native data re-rates price, profit, ROI, stack, liquidity, confidence and score.
+The displayed gil/minute is **gil per active gathering minute**, not a claim that every timed-node waiting minute is lost productivity. Timed availability is treated as availability/convenience friction instead.
 
-Native Deep Scan is intentionally separate from broad discovery: it does **not** restart the several-thousand-item Universalis pass.
+The old arbitrary ±35% throughput display band has been removed. Numerical yield ranges should return only when they can be tied to real node topology or personal gathering telemetry.
 
-### Portfolio mode
+Fishing is not ranked yet because bait, weather, bite/catch probability and route behavior need a different model before a gil/minute number would be credible.
 
-Instead of asking only “what is the single highest-rated item?”, the budget portfolio can distribute a chosen bankroll across multiple opportunities while respecting:
+---
 
-- total budget,
-- maximum investment percentage per item,
-- a configurable maximum number of positions,
-- the currently active Buy filters,
-- the risk-adjusted economics of each opportunity.
+# Opportunities
 
-This is useful when you would rather deploy 500,000g across several independent trades than bet the entire amount on one headline ROI.
+The Opportunities tab merges the currently available Buy, Craft and Gather evidence into one ranked action list.
+
+The goal is not to force every action onto one fake metric. It keeps rating, confidence, profit, ROI, active-time efficiency and liquidation visible so you can distinguish a high-confidence quick flip from a profitable-but-slow craft or a high-value gather.
+
+Gathering an ingredient does **not** become economically free simply because you can gather it.
 
 ---
 
 # Should I Tycoon?
 
-Should I Tycoon? is the personal economy layer of the suite. It is no longer only a flip tracker: it separates **your actual gil cashflow** from **your trading economics**, then connects both back to Should I Buy? and Should I Sell?.
+Tycoon is the personal economy layer.
 
-### Wallet cashflow
+### Cashflow
 
-While Should I? is running, Tycoon observes the player gil balance and records direct wallet increases and decreases. The amount is exact; the source is only auto-labeled when the plugin has evidence strong enough to prove it.
+While the plugin is running, Should I? can record direct changes in your character's gil wallet. The **amount and resulting balance are evidence**; the source is only labeled when the plugin has evidence strong enough to justify it.
 
-That gives you:
+Category analytics are intentionally deferred until category attribution can be reliable. The cashflow view stays focused on the actual ledger instead of asking you to manually classify every wallet movement.
 
-- current observed wallet balance,
-- observed income, spending and net cashflow,
-- editable categories for **Market Board, vendors, quests, duties/roulettes, teleport, repairs, crafting/materials, glamour, housing, player trades, retainer transfers and other activity**,
-- a category breakdown showing where your gil actually moves,
-- explicit **Unclassified** entries instead of invented source attribution.
+### Purchase / trade tracking
 
-Confirmed Market Board purchases are particularly strong evidence: Tycoon already knows the exact item, quantity, purchase price and buyer tax, so matching wallet decreases can be classified automatically.
+- Market Board purchases can be captured automatically when the game exposes the successful transaction.
+- Normal-gil vendor acquisitions can be recorded manually, optionally starting directly from a Vendor opportunity.
+- Purchases can be treated as **Trade** or **Personal** without deleting the acquisition record.
+- Trade lots feed FIFO cost-basis accounting.
+- Captured sales can close tracked lots and produce realized P&L / holding-time measurements.
 
-Tycoon does **not** fabricate offline cashflow. Login or character switching establishes a new balance baseline.
+If Should I? does not know what you paid, it does not invent a cost basis.
 
-### Trade positions, cost basis and P&L
-
-Every confirmed Market Board purchase can still enter the trading ledger with exact cost basis, including buyer tax. If it matches a current Should I Buy? recommendation, the strategy and model prediction travel with the purchase.
-
-Captured retainer sales are joined to trade lots using **FIFO accounting**, producing:
-
-- trade positions and open cost basis,
-- realized and model-based unrealized P&L,
-- ROI and holding time,
-- item and strategy performance,
-- prediction-vs-reality calibration,
-- trader-profile summaries.
-
-Normal purchases no longer have to pollute this analysis. The **Purchases** tab lets you mark any lot **Personal** — for crafting, glamour, housing or anything else. The spending remains in cashflow history, but the lot is removed from FIFO trading positions/P&L. You can switch it back to **Track as trade** at any time.
-
-If Should I? does **not** know what you paid for something, it still refuses to invent a cost basis. Gathered, crafted, dropped, gifted or pre-tracking stock can contribute to sales insights without producing fictional profit figures.
-
-### Retainer sales vs. wallet transfers
-
-A Market Board sale is earned by a retainer before that gil necessarily reaches the player wallet. Tycoon therefore keeps **captured Market Board sale income** as its own high-confidence economic source rather than pretending that a later retainer withdrawal is the original sale event. A withdrawal can be categorized as **Retainer transfer / internal** in cashflow.
-
-### Sales Insights
-
-Sales Insights uses all captured personal retainer sales — including unknown-cost stock — to show what actually moves for you, your strongest earners, transaction frequency, units sold, realized prices and personal selling patterns.
-
-### Listing Insights
-
-Should I? persistently observes your own listing lifecycle where it can do so safely:
-
-- total observed listing lifetime,
-- exact **price + quantity as-is age**,
-- price age and quantity age,
-- repricing,
-- quantity changes,
-- relisting behavior,
-- traceable time-to-sale.
-
-FFXIV does not expose every historical lifecycle timestamp directly, so correlation is intentionally conservative. The plugin would rather mark something unknown than manufacture precision.
+Tycoon also exposes open positions, closed trades, strongest items/strategies, sales insights, listing lifecycle observations and prediction-vs-reality accuracy where evidence exists.
 
 ---
 
-# What Should I? does **not** do
+# Inventory integration
 
-This section matters just as much as the feature list.
+## Native FFXIV item tooltip
 
-- **No automatic buying.** Recommendations never click or purchase Market Board listings for you.
-- **No automatic selling or repricing.** Suggested actions remain your decision.
-- **No guaranteed profit.** Market participants can change prices and supply immediately after an observation.
-- **No silent cross-world recommendation mixing.** Normal Buy discovery is scoped to your current physical world. Cross-world trading should be an explicit mode, not an invisible assumption.
-- **No fictional cost basis.** Unknown acquisition cost stays unknown.
-- **No fictional gil-source attribution.** An exact wallet delta can remain Unclassified when FFXIV does not expose enough context to prove whether it came from a quest, duty, vendor, trade, etc.
-- **No assumption that NPC supply is scarce.** Renewable normal-vendor NQ goods receive special protection against false buyout opportunities.
-- **No instant full-market native scan.** Native FFXIV searches are intentionally paced one item at a time.
+When you hover a marketable inventory item, Should I? can append a compact **Should I?** section directly to FFXIV's normal `ItemDetail` tooltip.
+
+Depending on cached evidence, it can show Sell stars / opportunity score / confidence, estimated net value per item, estimated value of the hovered stack when its stack quantity is available, and cached Buy / Craft / Gather ratings.
+
+The tooltip does **not** perform network requests. It shows data Should I? already knows.
+
+Compatibility is deliberately additive: Should I? owns one uniquely identified text node at the current bottom of the native tooltip and removes/restores only the height it added before the game refreshes the tooltip. It does not replace the base tooltip or other plugins' nodes.
+
+## Inventory right-click
+
+Should I? also uses Dalamud's official context-menu API to add **Look up in Should I…**, with relevant module destinations for the selected item.
+
+Both integrations can be disabled from setup/preferences.
 
 ---
 
-# Installation
+# Where the data comes from
 
-Should I? is distributed through a **custom Dalamud repository**.
+Should I? intentionally uses several evidence layers:
 
-Add this URL to Dalamud:
+- **Universalis** for current-world listing/history discovery and market statistics;
+- **Lumina/game sheets** for static item, recipe, vendor and gathering information;
+- **normal FFXIV inventory / Market Board observations** while those data are exposed by the game;
+- **your local trading history** captured while the plugin is running;
+- optionally, fresh snapshots published by **Should I Deep Mine?**.
+
+Should I? does not require a Deep Mine installation.
+
+---
+
+# Optional companion: Should I Deep Mine?
+
+Deep Mine contains the deliberately experimental native queued Market Board scanner that was removed from Should I?. It remains a separate custom-repository plugin and is **not part of Should I?'s official-list submission plan**.
+
+```text
+https://raw.githubusercontent.com/JustPixelll/ShouldIDeepMine/main/pluginmaster.json
+```
+
+Deep Mine can scan explicit scopes such as known owned items, current listings, loaded inventory, active retainer, item category or custom item IDs. Nothing scans automatically at startup.
+
+Should I? can consume completed Deep Mine snapshots over versioned Dalamud IPC, but Should I? never sends Deep Mine a command to start scanning.
+
+---
+
+# Installation (current testing distribution)
+
+Until the official Dalamud listing is approved, Should I? is installed through a custom repository.
+
+Add this URL under **Dalamud Settings → Experimental → Custom Plugin Repositories**:
 
 ```text
 https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/pluginmaster.json
 ```
 
-Then:
+Then save Dalamud settings, open `/xlplugins`, search for **Should I?**, install/enable it, and run:
 
-1. In FFXIV, run `/xlsettings`.
-2. Open the **Experimental** tab.
-3. Find **Custom Plugin Repositories**.
-4. Paste the URL above into an empty row.
-5. Click **+**, then **Save and Close**.
-6. Run `/xlplugins`.
-7. Search for **Should I?** and install it.
-8. Open the plugin with `/sellcheck`.
+```text
+/shouldi
+```
 
-`/sellcheck` is the legacy command name and remains intentionally supported even though the product has grown into the full Should I? suite.
+`/sellcheck` remains as a legacy alias for opening Should I Sell?.
 
 ---
 
 # First-time setup
 
-## 1. Open Should I?
-
-Run:
+On a fresh configuration, Should I? opens a short setup guide automatically. You can reopen it later with:
 
 ```text
-/sellcheck
+/shouldi setup
 ```
 
-Leave the plugin open for a few seconds after first installation.
+### 1. Expose inventory containers once
 
-## 2. Let FFXIV expose your inventory sources
+FFXIV does not keep every inventory source loaded continuously. To give Should I? a useful ownership snapshot:
 
-FFXIV does not keep every inventory container loaded at all times. Should I? can only discover a retainer, saddlebag or listing container after the game has loaded it at least once.
+1. Open your normal player inventory.
+2. Open your Chocobo Saddlebag.
+3. Open Premium Saddlebags if you use them.
+4. Visit a Summoning Bell.
+5. Open every retainer inventory once.
+6. Open every selling retainer's current listing page once.
+7. Optionally open retainer sale history so recent exact rows can be observed where supported.
 
-For the best Sell/Tycoon experience, do this once:
+Should I? persists previously observed snapshots locally, so a retainer does not need to remain open for its last known inventory to appear.
 
-1. Open your normal inventory.
-2. Open your **Chocobo Saddlebag**.
-3. Open **Premium Saddlebags** if you use them.
-4. Visit a **Summoning Bell**.
-5. Select every retainer one by one and let its inventory load briefly.
-6. For Market Board retainers, open the retainer's selling/listing interface as well.
-7. Optional but recommended: open **View sale history** on each retainer once so Should I? can reconcile recent exact sale rows that predate installation.
+If Should I? has not yet seen your normal inventory during the current session, Should I Sell? shows an inventory-coverage warning. Opening the inventory clears it for the session; permanently dismissing it prevents it from returning.
 
-Observed ownership snapshots are persisted locally, so you do not have to reopen every retainer before every normal session. Reopen a container when its contents changed and you want the cached snapshot refreshed.
+### 2. Refresh market data
 
-## 3. Give Sell deeper history
+Use **Should I Sell? → Market Refresh** or the module-specific Universalis actions when you want fresh market evidence. Refresh scopes are explicit; there is no automatic full native Market Board sweep.
 
-After loading your inventory sources, run:
+### 3. Choose inventory integrations
 
-```text
-/sellcheck fetch
-```
+The welcome guide includes toggles for the native item-tooltip section and the **Look up in Should I…** inventory context menu.
 
-This refreshes deeper Universalis history for known marketable owned items.
+### 4. Optional Deep Mine
 
-## 4. Optional: run your first full live Sell audit
-
-Run:
-
-```text
-/sellcheck audit
-```
-
-or use **FULL LIVE AUDIT — ALL OWNED** in the plugin.
-
-The audit intentionally queries unique items **one at a time** and ignores cached freshness. A few hundred items can therefore take many minutes. This is expected behavior, not a frozen UI.
-
-For the cleanest run, avoid manually searching the Market Board while the native audit queue is active.
-
-## 5. Configure Buy before your first discovery
-
-Open Should I Buy? and set the boundaries you are actually comfortable trading with:
-
-- total gil budget,
-- minimum potential profit,
-- minimum ROI,
-- maximum expected holding time,
-- maximum percentage of the budget allowed in one item,
-- maximum portfolio positions,
-- enabled strategy types,
-- optional item-category scope.
-
-Then run **DISCOVER GOOD BUYS (UNIVERSALIS)**.
-
-If you want native verification afterward, open the appropriate retainer Market Board/sell interface and use LIVE VERIFY or Deep Scan.
-
----
-
-# Suggested workflows
-
-## “I just want to clean my retainers”
-
-Load each retainer once → refresh/fetch data → sort Should I Sell? by rating → sell the strongest opportunities first → ignore low-value clutter unless you specifically want to clear space.
-
-## “I am actively listing items right now”
-
-Open the relevant FFXIV sell scope → use **Live Scan Open Sell Inventory** → inspect Suggested price and Stack → right-click Suggested to copy the raw gil value → use Current Listings later to review repricing needs.
-
-## “I have 1,000,000g and want to trade”
-
-Set Buy budget to 1,000,000g → choose your profit/ROI/holding limits → run discovery → filter strategies → build a budget portfolio → Deep Scan the strongest candidates → manually verify the recommendation and make the purchase yourself.
-
-## “I want low-maintenance income”
-
-Favor stronger liquidity, shorter holding limits and fewer portfolio positions. On Sell, use the low-maintenance stack alternative where the convenience of fewer listings outweighs a small theoretical pricing gain.
-
-## “I want to learn whether my trading ideas are actually good”
-
-Use Buy normally while Should I Tycoon? captures known purchase cost basis → let sales accumulate → compare realized results and strategy performance to the original prediction instead of judging strategies from memorable wins alone.
-
----
-
-# How the data model works
-
-Should I? combines several kinds of evidence rather than trusting one number.
-
-### Live FFXIV data
-
-Used for the freshest information when the game exposes it:
-
-- inventory/retainer containers,
-- current personal listings,
-- native ItemSearch Market Board observations,
-- purchase events,
-- retainer sale/history events.
-
-### Universalis
-
-Used for broad market discovery and deeper historical context:
-
-- current listing books,
-- historical sales,
-- average/median pricing context,
-- sale velocity.
-
-### Local game data
-
-Lumina sheets provide item metadata and known gil-vendor economics used by strategies and safeguards.
-
-### Local persisted history
-
-Should I? stores learned ownership, sale, purchase, trading and listing-lifecycle information locally so it can retain context between sessions.
-
-Live FFXIV observations take priority over older remote current-market observations when both exist.
-
----
-
-# Ratings and confidence
-
-The plugin intentionally separates **rating** from **confidence**.
-
-### Stars
-
-A broad practical band. Five stars means the opportunity looks excellent within that module's model; it is not a promise of success.
-
-### 0–100 score
-
-A stricter ranking intended to separate multiple otherwise-good opportunities. A five-star 82 and a five-star 94 are both strong, but the second has more of the model aligned.
-
-### Confidence
-
-Evidence quality, quantity and freshness. A market can look attractive while still having weak evidence, so confidence is not folded into a fake statement of certainty.
-
-<details>
-<summary><strong>Sell score weights</strong></summary>
-
-| Component | Weight |
-|---|---:|
-| Price attractiveness | 25% |
-| Demand | 17% |
-| Supply | 12% |
-| Liquidity | 11% |
-| Stability | 9% |
-| Trend | 5% |
-| Expected recommended-listing value | 11% |
-| Vendor economics | 10% |
-
-Vendor economics can apply stronger safeguards when Market Board proceeds are worse than a guaranteed NPC alternative.
-
-</details>
-
-<details>
-<summary><strong>Buy score weights for normal market exits</strong></summary>
-
-| Component | Weight |
-|---|---:|
-| ROI | 22% |
-| Absolute profit | 20% |
-| Liquidity / holding time | 18% |
-| Price advantage | 12% |
-| Demand | 10% |
-| Stability | 7% |
-| Confidence | 6% |
-| Execution friction | 5% |
-
-Additional execution overlays can further penalize weak capital recovery, excessive listing cycles or changed native-market conditions. Market → Vendor uses a separate guaranteed-exit model because its economics are fundamentally different.
-
-</details>
+Install Deep Mine only if you specifically want its explicit experimental native scan scopes. Should I? remains fully usable without it.
 
 ---
 
 # Commands
 
-The legacy `/sellcheck` namespace controls the suite:
-
 | Command | Action |
 |---|---|
-| `/sellcheck` | Open Should I? |
-| `/sellcheck scan` | Snapshot currently loaded owned-item containers |
-| `/sellcheck fetch` | Force Universalis refresh for known marketable owned items |
-| `/sellcheck refresh` | Refresh stale known owned items through FFXIV |
-| `/sellcheck listings` | Refresh only unique items in cached current retainer listings |
-| `/sellcheck livescan` | Refresh the currently open player/retainer selling scope |
-| `/sellcheck audit` | Force-refresh every unique marketable item in known ownership snapshots |
-| `/sellcheck stop` | Stop the active native Market Board queue |
-
-Most normal use can be done through the UI after opening the plugin once.
-
----
-
-# FAQ
-
-### Does Should I? automatically trade for me?
-
-No. Market interactions remain manual. The plugin analyzes and recommends; you decide and execute.
-
-### Why can a full live audit take so long?
-
-Native Market Board requests are intentionally paced one item at a time. Should I? is experimental and prioritizes controlled, observable behavior over trying to hammer through hundreds of searches instantly.
-
-### Why do I need to open my retainers once?
-
-FFXIV does not keep all retainer and saddlebag data loaded continuously. The plugin cannot persist a snapshot of a container it has never been allowed to see.
-
-### Does Buy scan every item natively?
-
-No. Broad discovery uses Universalis efficiently. Native FFXIV verification is reserved for explicit LIVE VERIFY / Deep Scan actions on selected candidates.
-
-### Why did a Buy recommendation disappear after Deep Scan?
-
-That is often a good sign: the exact listing package may have changed, or fresh market data may no longer meet your configured profit, ROI or holding limits. A recommendation should be allowed to become worse when reality changes.
-
-### Why will Should I? not recommend buying out cheap vendor items?
-
-Because normal gil-vendor supply is renewable. Buying another player's cheap vendor stock does not stop them — or anyone else — from immediately acquiring more at the NPC price. The safer strategy, when the convenience premium is real, is Vendor → Market with a small working listing.
-
-### Can I use this for cross-world trading?
-
-Normal Buy recommendations are intentionally current-world scoped. Cross-world economics should be an explicit future workflow where acquisition world, travel effort and execution assumptions are visible rather than silently mixed into local results.
-
-### Is personal history uploaded somewhere?
-
-Should I?'s learned ownership, purchase, sale and listing-history data is persisted locally. The plugin also calls Universalis for public market information.
-
-### Is this an official Dalamud plugin?
-
-No. This repository is an experimental custom Dalamud repository, not an official mainline plugin listing.
+| `/shouldi` | Open Should I? |
+| `/shouldi sell` | Open Should I Sell? |
+| `/shouldi buy` | Open Should I Buy? |
+| `/shouldi craft` | Open Should I Craft? |
+| `/shouldi gather` | Open Should I Gather? |
+| `/shouldi opportunities` | Open unified Opportunities |
+| `/shouldi tycoon` | Open Should I Tycoon? |
+| `/shouldi setup` | Reopen first-run/setup guide |
+| `/shouldi fetch` | Refresh known owned market data from Universalis |
+| `/shouldi stop` | Cancel active Buy/Craft/Gather analysis jobs |
+| `/sellcheck` | Legacy alias for Should I Sell? |
 
 ---
 
-# Important limitations
+# What Should I? deliberately does not do
 
-- Market conditions can change immediately after any observation.
-- Native FFXIV structures and Dalamud APIs are patch-sensitive and may require updates after game/framework changes.
-- Full live auditing depends on the relevant in-game Market Board request path remaining available.
-- Seller proceeds use a conservative **5% seller-tax assumption**; actual proceeds can be slightly better at reduced-tax locations.
-- Personal current-listing age starts when Should I? first observes the listing if FFXIV does not expose the original server-side creation timestamp.
-- Exact retainer sale history is limited by the rows FFXIV itself exposes, so sufficiently old offline sales may disappear before the plugin can observe them.
-- Tycoon FIFO is an accounting convention for fungible same-item units, not proof that a specific physical unit purchased earlier was the one later sold.
-- Universalis freshness depends on community uploads; explicit native verification exists for situations where current execution matters.
+- No automatic buying.
+- No automatic selling.
+- No automatic repricing/listing edits.
+- No queued native Market Board deep scanner inside the official plugin.
+- No guaranteed-profit claims.
+- No fictional purchase cost basis.
+- No fictional cashflow source/category when the game does not expose enough evidence.
+- No treating renewable NPC vendor stock as scarce Market Board supply.
+- No pretending a low-confidence gather/craft timing estimate is precise.
+
+Market prices and behavior can change immediately after an observation; recommendations are estimates and should be treated as decision support.
 
 ---
 
-# Building from source
+# Privacy / storage
 
-Requirements:
+- Local inventory snapshots, listing observations and personal trading records are stored in the plugin's local Dalamud configuration/data area.
+- Universalis requests contain public market/item/world lookup information needed for the analysis; Should I? does not send your Square Enix password or credentials anywhere.
+- Deep Mine IPC, when used, stays between local Dalamud plugins.
 
-- Windows
-- XIVLauncher / Dalamud installed and run at least once
-- .NET 10 SDK
+---
 
-Build:
+# Development
+
+Should I? currently targets **Dalamud API 15** and **.NET 10**.
 
 ```powershell
-dotnet build .\ShouldISell\ShouldISell.csproj -c Release
+dotnet restore .\ShouldISell\ShouldISell.csproj
+dotnet build .\ShouldISell\ShouldISell.csproj --configuration Release --no-restore
 ```
 
-`Dalamud.NET.Sdk` / `DalamudPackager` creates the release package for Release builds. The generated `latest.zip` can be found under the project's `bin` directory.
-
-The repository's GitHub Actions workflow also builds against the current Dalamud development distribution.
-
-See [RELEASING.md](RELEASING.md) for the maintainer release workflow and [DESIGN.md](DESIGN.md) for deeper implementation/design notes.
+CI builds Release against current Dalamud development files for every pull request.
 
 ---
 
-# Project status
+# Status
 
-Should I? is intentionally **experimental**.
+The plugin is being prepared for an official Dalamud **testing-channel** submission. The repository is intentionally being polished and locally tested first; no official listing has been submitted yet.
 
-That means the project is willing to try market-analysis ideas that may be too specialized or opinionated for a general-purpose official plugin, while still treating incorrect recommendations as bugs worth fixing. Models will continue to evolve as real in-game testing exposes bad assumptions, edge cases and better ways to represent risk.
-
-The goal is not to build a magic “make gil” button. The goal is to build a progressively better **decision system** around the information FFXIV already gives a player.
-
----
-
-# Credits
-
-Built on the FFXIV/Dalamud ecosystem and public market data provided by the community:
-
-- [Dalamud](https://github.com/goatcorp/Dalamud)
-- [FFXIVClientStructs](https://github.com/aers/FFXIVClientStructs)
-- [Universalis](https://universalis.app/) and its public API
-
-Development is iterative and AI-assisted, with behavior validated through builds and in-game testing.
-
-This is an unofficial third-party project and is not affiliated with or endorsed by Square Enix, XIVLauncher, Dalamud or Universalis.
-
-## License
-
-BSD 3-Clause. See [LICENSE](LICENSE).
+See `PUBLISHING.md` for the remaining release/submission checklist.

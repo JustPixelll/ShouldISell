@@ -363,7 +363,6 @@ public sealed partial class SuiteWindow
 
         selectedBuyOpportunity = null;
         buyDetailsOpen = false;
-        buyPortfolioPlan = null;
     }
 
     private static int OneListingUnits(BuyOpportunity opportunity)
@@ -470,3 +469,4 @@ public sealed partial class SuiteWindow
 
     private static double Clamp01Buy(double value) => Math.Clamp(value, 0.0, 1.0);
 }
+
