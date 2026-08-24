@@ -4,9 +4,9 @@
     "Name": "Should I?",
     "Punchline": "Know what to sell, what to buy, and where your gil goes.",
     "Description": "FFXIV economy intelligence suite: sell optimization, executable buy discovery, native verification, gil cashflow tracking, FIFO trading P&L, and personal Market Board analytics.",
-    "Changelog": "# Should I? v2.1.0\r\n\r\n## Faster cashflow categorization\r\n- Common cashflow categories now have one-click icon shortcuts, with the complete category list still available through `...`.\r\n- Icons use Dalamud's dedicated icon font.\r\n\r\n## Manual vendor acquisition tracking\r\n- Manually record normal-gil vendor purchases in Tycoon → Purchases with item, quantity, unit cost and Trade/Personal intent.\r\n- Vendor trade lots use the same FIFO cost-basis and realized-P&L engine as Market Board purchases.\r\n- Exact recent wallet decreases can be reconciled as Vendor without fabricating transactions.\r\n- Purchases retain source identity: Market Board or Vendor (manual).\r\n\r\n## Separate Should I Buy? lanes\r\n- Market Board buys and Vendor → Market opportunities now have independent scans and result caches.\r\n- Vendor candidates no longer consume Market Board shortlist/deep-analysis capacity.\r\n- Vendor → Market has its own results table; Market Board screener, Deep Scan and portfolio stay focused on Market Board acquisition routes.",
+    "Changelog": "v2.2.0 test-install: Craft, Gather, Opportunities, Universalis-only refresh UX, Buy lane redesign, Tycoon cleanup, item hover/context integration, and Deep Mine split.",
     "InternalName": "ShouldISell",
-    "AssemblyVersion": "2.1.0.0",
+    "AssemblyVersion": "2.2.0.0",
     "RepoUrl": "https://github.com/JustPixelll/ShouldISell",
     "ApplicableVersion": "any",
     "CategoryTags": [
@@ -18,10 +18,10 @@
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/overview.png",
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/details.png"
     ],
-    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.1.0/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.1.0/latest.zip",
+    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.2.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.2.0/latest.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "LastUpdate": "1787565188"
+    "LastUpdate": "1787594470"
   }
 ]
