@@ -1,0 +1,20 @@
+# Should I? v2.0.1
+
+v2.0.1 fixes the Tycoon ROI presentation that could make a perfectly ordinary portfolio look like it had a multi-thousand-percent overall return.
+
+## ROI/accounting semantics
+
+- The Tycoon headline no longer labels closed-lot ROI as though it were return on all invested gil.
+- **Realized return / spend** is now `realized profit ÷ all tracked Trade purchase cost`, including lots that are still open. This is the conservative top-line number that belongs beside tracked trade spend.
+- **Closed-trade ROI** remains the standard trade return-on-cost calculation: `realized profit ÷ cost basis of sold tracked units`. It is kept because it is the correct metric for comparing completed trades, items and strategies.
+- The exact **closed cost basis** and **closed net revenue** are now shown next to closed-trade ROI so the denominator is never hidden.
+- Closed Trades now says **ROI on cost**; Best Items and Strategies say **Closed ROI**.
+- Win rate is explicitly labeled as sale-event based.
+
+## Extreme ROI safety
+
+Tycoon does not clamp or cosmetically suppress legitimate extreme returns. A 100g acquisition sold for 3,500g really is roughly 3,400% ROI on that closed lot.
+
+However, identical FFXIV items are fungible and the game does not expose provenance for a sold unit. If you bought one unit while already owning crafted/gathered/gifted copies, FIFO can only be an accounting convention. When aggregate closed ROI is extremely high, Tycoon now warns you to verify the Closed Trades row and mark the purchase **Personal** if that sale did not actually come from the tracked purchase lot.
+
+This keeps unknown cost basis unknown instead of silently turning ambiguous stock into fictional trading profit.

@@ -83,22 +83,32 @@ public sealed partial class SuiteWindow
     {
         if (ImGui.BeginTable("##tycoon-metrics", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV))
         {
-            MetricCell(0, "Capital invested", Gil(snapshot.CapitalInvested));
+            MetricCell(0, "Tracked trade spend", Gil(snapshot.CapitalInvested));
             MetricCell(1, "Realized profit", Gil(snapshot.RealizedProfit));
-            MetricCell(2, "Realized ROI", Percent(snapshot.RealizedRoi));
-            MetricCell(3, "Win rate", Percent(snapshot.WinRate));
+            MetricCell(2, "Realized return / spend", Percent(snapshot.RealizedReturnOnTrackedSpend));
+            MetricCell(3, "Win rate (sale events)", Percent(snapshot.WinRate));
             ImGui.TableNextRow();
-            MetricCell(0, "Median holding", Days(snapshot.MedianHoldingDays));
-            MetricCell(1, "Open cost basis", Gil(snapshot.OpenCostBasis));
-            MetricCell(2, "Open est. net value", Gil(snapshot.OpenEstimatedNetValue));
-            MetricCell(3, "Unrealized est.", Gil(snapshot.UnrealizedProfit));
+            MetricCell(0, "Closed cost basis", Gil(snapshot.RealizedCostBasis));
+            MetricCell(1, "Closed net revenue", Gil(snapshot.RealizedRevenue));
+            MetricCell(2, "Closed-trade ROI", Percent(snapshot.RealizedRoi));
+            MetricCell(3, "Median holding", Days(snapshot.MedianHoldingDays));
+            ImGui.TableNextRow();
+            MetricCell(0, "Open cost basis", Gil(snapshot.OpenCostBasis));
+            MetricCell(1, "Open est. net value", Gil(snapshot.OpenEstimatedNetValue));
+            MetricCell(2, "Unrealized est.", Gil(snapshot.UnrealizedProfit));
+            MetricCell(3, "Open tracked units", snapshot.OpenUnits.ToString("N0"));
             ImGui.TableNextRow();
             MetricCell(0, "Trade purchases", snapshot.PurchaseCount.ToString("N0"));
             MetricCell(1, "Matched sale events", snapshot.TrackedSaleCount.ToString("N0"));
             MetricCell(2, "Closed units", snapshot.ClosedUnits.ToString("N0"));
-            MetricCell(3, "Open tracked units", snapshot.OpenUnits.ToString("N0"));
+            MetricCell(3, "Unmatched-cost units", snapshot.UnmatchedSaleUnits.ToString("N0"));
             ImGui.EndTable();
         }
+
+        ImGui.TextDisabled("Realized return / spend = realized profit ÷ all tracked Trade purchase cost. Closed-trade ROI = realized profit ÷ the cost basis of sold tracked units only.");
+        ImGui.TextDisabled("Closed-trade ROI is intentionally not capped: a 100g lot sold for 3,500g really is ~3,400% ROI on that closed lot, even if thousands of gil remain tied up in other open positions.");
+        if (snapshot.RealizedRoi >= 10.0 && snapshot.RealizedCostBasis > 0)
+            ImGui.TextWrapped("Very high closed-trade ROI detected. Check Closed Trades to verify the FIFO attribution. FFXIV cannot tell Tycoon whether an identical sold unit came from a tracked purchase or from pre-existing crafted/gathered/gifted stock; if the sale was not from that purchase lot, mark the purchase Personal so Tycoon does not invent cost-basis profit.");
 
         if (snapshot.UnmatchedSaleUnits > 0)
             ImGui.TextDisabled($"{snapshot.UnmatchedSaleUnits:N0} sold unit(s) could not be assigned a tracked purchase cost basis. This is expected for sales from before Tycoon purchase tracking began, crafted/gathered stock, gifts, or offline purchase history that the game never exposed.");
@@ -149,7 +159,7 @@ public sealed partial class SuiteWindow
 
     private static void DrawClosedTrades(TraderSnapshot snapshot)
     {
-        ImGui.TextDisabled("A row represents the tracked portion of one captured retainer-sale event. If a sale consumed several purchase lots, their cost basis and predictions are quantity-weighted.");
+        ImGui.TextDisabled("A row represents the tracked portion of one captured retainer-sale event. ROI on cost = (net revenue - matched FIFO cost basis) ÷ matched FIFO cost basis. If a sale consumed several purchase lots, their cost basis and predictions are quantity-weighted.");
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
         if (!ImGui.BeginTable("##tycoon-closed", 9, flags, new Vector2(0, -1)))
             return;
@@ -160,7 +170,7 @@ public sealed partial class SuiteWindow
         ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Net revenue", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Profit", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("ROI", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("ROI on cost", ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Held", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Strategy", ImGuiTableColumnFlags.WidthFixed, 130 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
@@ -196,7 +206,7 @@ public sealed partial class SuiteWindow
         ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Revenue", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Profit", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("ROI", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Closed ROI", ImGuiTableColumnFlags.WidthFixed, 75 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Avg hold", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
         foreach (var row in snapshot.TopItems)
@@ -228,7 +238,7 @@ public sealed partial class SuiteWindow
         ImGui.TableSetupColumn("Units", ImGuiTableColumnFlags.WidthFixed, 60 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Profit", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("ROI", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Closed ROI", ImGuiTableColumnFlags.WidthFixed, 75 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Avg hold", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
         foreach (var row in snapshot.Strategies)
