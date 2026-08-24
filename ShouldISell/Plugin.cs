@@ -25,6 +25,8 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IGameInteropProvider GameInterop { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
+    [PluginService] internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
+    [PluginService] internal static IContextMenu ContextMenu { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     public Configuration Configuration { get; }
@@ -33,6 +35,7 @@ public sealed class Plugin : IDalamudPlugin
     public GilLedgerTracker GilLedger { get; }
     public GameItemCatalog Catalog { get; }
     public InventoryScanner Inventory { get; }
+    public InventoryCoverageMonitor InventoryCoverage { get; }
     public UniversalisClient Universalis { get; }
     public MarketBoardObserver MarketObserver { get; }
     public RetainerSaleHistoryObserver SaleHistory { get; }
@@ -47,6 +50,7 @@ public sealed class Plugin : IDalamudPlugin
     public TraderAnalyzer TraderAnalyzer { get; }
     public ListingHistoryTracker ListingHistory { get; }
     public TycoonInsightService TycoonInsights { get; }
+    public ItemUiIntegration ItemUi { get; }
 
     public readonly WindowSystem WindowSystem = new("ShouldI");
     private readonly SuiteWindow suiteWindow;
@@ -60,6 +64,7 @@ public sealed class Plugin : IDalamudPlugin
         GilLedger = new GilLedgerTracker(GameInventory, PlayerState, TraderStore, Log);
         Catalog = new GameItemCatalog(DataManager);
         Inventory = new InventoryScanner(PlayerState, Catalog, Store, Log);
+        InventoryCoverage = new InventoryCoverageMonitor(AddonLifecycle, Configuration);
         Universalis = new UniversalisClient(Log);
         MarketObserver = new MarketBoardObserver(MarketBoard, PlayerState, Store, Log);
         SaleHistory = new RetainerSaleHistoryObserver(GameInterop, PlayerState, Store, Log);
@@ -76,19 +81,21 @@ public sealed class Plugin : IDalamudPlugin
         TycoonInsights = new TycoonInsightService(PlayerState, Store, Catalog, ListingHistory);
 
         suiteWindow = new SuiteWindow(this);
+        ItemUi = new ItemUiIntegration(this, GameGui, ContextMenu, suiteWindow);
         WindowSystem.AddWindow(suiteWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open Should I?. /shouldi sell, /shouldi buy, /shouldi craft, /shouldi gather, /shouldi opportunities, /shouldi tycoon, /shouldi scan, /shouldi fetch, /shouldi stop",
+            HelpMessage = "Open Should I?. /shouldi sell, /shouldi buy, /shouldi craft, /shouldi gather, /shouldi opportunities, /shouldi tycoon, /shouldi fetch, /shouldi stop",
         });
         CommandManager.AddHandler(LegacySellCommand, new CommandInfo(OnLegacySellCommand)
         {
-            HelpMessage = "Legacy Should I Sell? command. /sellcheck scan and /sellcheck fetch remain supported; native automated deep scanning now lives in Should I Deep Mine?.",
+            HelpMessage = "Legacy Should I Sell? command. /sellcheck fetch refreshes known owned market data from Universalis.",
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         PluginInterface.UiBuilder.Draw += ListingAttentionOverlay.Draw;
+        PluginInterface.UiBuilder.Draw += ItemUi.Draw;
         PluginInterface.UiBuilder.OpenMainUi += OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi += OpenMainUi;
 
@@ -98,11 +105,14 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnFrameworkUpdate;
+        PluginInterface.UiBuilder.Draw -= ItemUi.Draw;
+        ItemUi.Dispose();
         PurchaseObserver.Dispose();
         ProductionScanner.Dispose();
         ListingHistory.Dispose();
         BuyScanner.Dispose();
         DeepMine.Dispose();
+        InventoryCoverage.Dispose();
         SaleAnnouncements.Dispose();
         SaleHistory.Dispose();
         MarketObserver.Dispose();
@@ -156,39 +166,20 @@ public sealed class Plugin : IDalamudPlugin
         var trimmed = args.Trim();
         switch (trimmed.ToLowerInvariant())
         {
-            case "sell":
-                suiteWindow.OpenModule(ShouldIModule.Sell);
-                break;
-            case "buy":
-                suiteWindow.OpenModule(ShouldIModule.Buy);
-                break;
-            case "craft":
-                suiteWindow.OpenModule(ShouldIModule.Craft);
-                break;
-            case "gather":
-                suiteWindow.OpenModule(ShouldIModule.Gather);
-                break;
+            case "sell": suiteWindow.OpenModule(ShouldIModule.Sell); break;
+            case "buy": suiteWindow.OpenModule(ShouldIModule.Buy); break;
+            case "craft": suiteWindow.OpenModule(ShouldIModule.Craft); break;
+            case "gather": suiteWindow.OpenModule(ShouldIModule.Gather); break;
             case "opportunities":
             case "opportunity":
-            case "do":
-                suiteWindow.OpenModule(ShouldIModule.Opportunities);
-                break;
-            case "tycoon":
-                suiteWindow.OpenModule(ShouldIModule.Tycoon);
-                break;
-            case "scan":
-                Inventory.ScanLoadedContainers(forceFlush: true);
-                break;
-            case "fetch":
-                _ = Coordinator.RefreshOwnedFromUniversalisAsync(force: true);
-                break;
+            case "do": suiteWindow.OpenModule(ShouldIModule.Opportunities); break;
+            case "tycoon": suiteWindow.OpenModule(ShouldIModule.Tycoon); break;
+            case "fetch": _ = Coordinator.RefreshOwnedFromUniversalisAsync(force: true); break;
             case "stop":
                 BuyScanner.CancelScan();
                 ProductionScanner.CancelScan();
                 break;
-            default:
-                suiteWindow.Toggle();
-                break;
+            default: suiteWindow.Toggle(); break;
         }
     }
 
