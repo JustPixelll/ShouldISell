@@ -4,9 +4,9 @@
     "Name": "Should I?",
     "Punchline": "Know what to sell, what to buy, and where your gil goes.",
     "Description": "FFXIV economy intelligence suite: sell optimization, executable buy discovery, native verification, gil cashflow tracking, FIFO trading P&L, and personal Market Board analytics.",
-    "Changelog": "# Should I? v2.0.2\r\n\r\n## Sales History — realized-price benchmark\r\n\r\n- Adds a new benchmark overview comparing your captured net sale prices with your current world's trailing 90-day historical Market Board prices for the same item/HQ variant.\r\n- Shows your average realized net/unit, the historical unit-weighted average and unit-weighted median, per-unit differences, and total gil difference across the units you actually sold.\r\n- Adds portfolio-level totals: actual covered net gil, the equivalent historical-average/median benchmark, and the aggregate difference in gil and percent.\r\n- Historical market prices are converted to a conservative after-5%-seller-tax net so they are comparable with the personal sales ledger.\r\n- Includes explicit coverage/sample counts and avoids claiming causal profit: this is an observed market benchmark, not proof that every gil of difference was created by Should I?.\r\n- Adds a dedicated Universalis history refresh for sold items, including items that are no longer in your inventory.\r\n\r\n## Current Listings — retainer filter\r\n\r\n- Current Listings can now be filtered to All retainers or one individual cached retainer.\r\n- The retainer filter composes with item search, rating, stars and payout filters.\r\n- Reset restores All retainers.",
+    "Changelog": "# Should I? v2.1.0\r\n\r\n## Faster cashflow categorization\r\n- Common cashflow categories now have one-click icon shortcuts, with the complete category list still available through `...`.\r\n- Icons use Dalamud's dedicated icon font.\r\n\r\n## Manual vendor acquisition tracking\r\n- Manually record normal-gil vendor purchases in Tycoon → Purchases with item, quantity, unit cost and Trade/Personal intent.\r\n- Vendor trade lots use the same FIFO cost-basis and realized-P&L engine as Market Board purchases.\r\n- Exact recent wallet decreases can be reconciled as Vendor without fabricating transactions.\r\n- Purchases retain source identity: Market Board or Vendor (manual).\r\n\r\n## Separate Should I Buy? lanes\r\n- Market Board buys and Vendor → Market opportunities now have independent scans and result caches.\r\n- Vendor candidates no longer consume Market Board shortlist/deep-analysis capacity.\r\n- Vendor → Market has its own results table; Market Board screener, Deep Scan and portfolio stay focused on Market Board acquisition routes.",
     "InternalName": "ShouldISell",
-    "AssemblyVersion": "2.0.2.0",
+    "AssemblyVersion": "2.1.0.0",
     "RepoUrl": "https://github.com/JustPixelll/ShouldISell",
     "ApplicableVersion": "any",
     "CategoryTags": [
@@ -18,10 +18,10 @@
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/overview.png",
       "https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/details.png"
     ],
-    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.0.2/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.0.2/latest.zip",
+    "DownloadLinkInstall": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.1.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/JustPixelll/ShouldISell/releases/download/v2.1.0/latest.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "LastUpdate": "1787563014"
+    "LastUpdate": "1787565171"
   }
 ]
