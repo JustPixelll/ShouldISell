@@ -5,7 +5,7 @@ namespace ShouldISell;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 8;
+    public int Version { get; set; } = 9;
     public int ValueThresholdGil { get; set; } = 10_000;
     public int ValueSetting { get; set; } = 3;
 
@@ -34,8 +34,11 @@ public sealed class Configuration : IPluginConfiguration
     public int UniversalisCurrentTtlMinutes { get; set; } = 15;
     public int UniversalisHistoryTtlMinutes { get; set; } = 60;
 
-    // The inventory-coverage reminder is informational. Once dismissed by the user, it stays gone.
+    // User-facing onboarding and additive inventory UI integrations.
     public bool InventoryCoverageWarningDismissed { get; set; }
+    public bool FirstRunCompleted { get; set; }
+    public bool ShowItemTooltipInsights { get; set; } = true;
+    public bool ShowItemContextMenu { get; set; } = true;
 
     public void MigrateIfNeeded()
     {
@@ -69,6 +72,13 @@ public sealed class Configuration : IPluginConfiguration
         {
             BuyDiscoveryNameFilter ??= string.Empty;
             Version = 8;
+            changed = true;
+        }
+        if (Version < 9)
+        {
+            ShowItemTooltipInsights = true;
+            ShowItemContextMenu = true;
+            Version = 9;
             changed = true;
         }
 
