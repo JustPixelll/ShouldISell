@@ -1,0 +1,81 @@
+name: Temporary Should I? v2.0.2 branch finalizer
+
+on:
+  push:
+    branches: [ release/v2.0.2-finalizer ]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout v2.0.2 source
+        uses: actions/checkout@v5
+        with:
+          ref: 68aa42948b844ac46c27a20bdd9086252f53c5c8
+          fetch-depth: 0
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download Dalamud development files
+        shell: pwsh
+        run: |
+          $destination = "$env:AppData\XIVLauncher\addon\Hooks\dev"
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Invoke-WebRequest -Uri "https://goatcorp.github.io/dalamud-distrib/latest.zip" -OutFile "$env:RUNNER_TEMP\dalamud.zip"
+          Expand-Archive -Force "$env:RUNNER_TEMP\dalamud.zip" $destination
+
+      - name: Restore
+        run: dotnet restore .\ShouldISell\ShouldISell.csproj
+
+      - name: Build Release
+        run: dotnet build .\ShouldISell\ShouldISell.csproj --configuration Release --no-restore
+
+      - name: Locate release package
+        id: package
+        shell: pwsh
+        run: |
+          $package = Get-ChildItem -Path ".\ShouldISell\bin" -Filter "latest.zip" -Recurse | Select-Object -First 1
+          if (-not $package) { throw "DalamudPackager did not create latest.zip" }
+          Copy-Item $package.FullName "$env:RUNNER_TEMP\latest.zip" -Force
+          "path=$env:RUNNER_TEMP\latest.zip" >> $env:GITHUB_OUTPUT
+
+      - name: Create v2.0.2 tag and release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag v2.0.2 68aa42948b844ac46c27a20bdd9086252f53c5c8
+          git push origin v2.0.2
+          gh release create v2.0.2 --title "Should I? v2.0.2" --notes-file RELEASE_NOTES_v2.0.2.md --target 68aa42948b844ac46c27a20bdd9086252f53c5c8
+          gh release upload v2.0.2 "${{ steps.package.outputs.path }}#latest.zip" --clobber
+
+      - name: Update custom repository manifest
+        shell: pwsh
+        run: |
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          [xml]$project = Get-Content ".\ShouldISell\ShouldISell.csproj"
+          $version = [string]$project.Project.PropertyGroup.Version
+          $body = (Get-Content ".\RELEASE_NOTES_v2.0.2.md" -Raw).Trim()
+          $manifest = @(Get-Content ".\pluginmaster.json" -Raw | ConvertFrom-Json)
+          $download = "https://github.com/JustPixelll/ShouldISell/releases/download/v2.0.2/latest.zip"
+          $manifest[0].AssemblyVersion = $version
+          $manifest[0].DownloadLinkInstall = $download
+          $manifest[0].DownloadLinkUpdate = $download
+          $manifest[0].LastUpdate = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()
+          $manifest[0].Changelog = $body
+          ConvertTo-Json -InputObject $manifest -Depth 10 | Set-Content ".\pluginmaster.json" -Encoding UTF8
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pluginmaster.json
+          git commit -m "chore: update plugin repository for v2.0.2"
+          git push origin main
