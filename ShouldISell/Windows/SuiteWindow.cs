@@ -21,7 +21,6 @@ public sealed partial class SuiteWindow : Window, IDisposable
     private readonly MainWindow sellWindow;
     private ShouldIModule? selectOnNextDraw;
     private BuyOpportunity? selectedBuyOpportunity;
-    private BuyPortfolioPlan? buyPortfolioPlan; // Legacy model cache compatibility; no portfolio UI remains.
     private bool buyDetailsOpen;
     private BuySortColumn buySortColumn = BuySortColumn.Rating;
     private bool buySortAscending;
