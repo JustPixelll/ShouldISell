@@ -1,0 +1,256 @@
+name: Cleanup private integration references
+
+on:
+  push:
+    branches: [ feature/private-data-cleanup-submit ]
+    paths: [ .github/workflows/cleanup-private-integration.yml ]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Rewrite private integration references
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+
+          # Welcome: remove the private companion section entirely.
+          p = Path('ShouldISell/Windows/WelcomeWindow.cs')
+          s = p.read_text()
+          block = '''        ImGui.TextUnformatted("3. Optional: Should I Deep Mine?");\n        ImGui.TextWrapped("Deep Mine is a separate experimental companion for explicitly requested native Market Board deep scans. Should I? works without it. If installed, completed Deep Mine snapshots can be consumed automatically over Dalamud IPC.");\n        ImGui.SetNextItemWidth(-1);\n        ImGui.InputText("##deepmine-url", ref DeepMineRepositoryUrl, 256, ImGuiInputTextFlags.ReadOnly);\n        if (ImGui.Button("Copy Deep Mine repository URL"))\n            ImGui.SetClipboardText(DeepMineRepositoryUrl);\n        ImGui.Spacing();\n\n'''
+          if block not in s:
+              raise SystemExit('Welcome private companion block not found')
+          s = s.replace(block, '')
+          s = s.replace('\n    private string DeepMineRepositoryUrl = "https://raw.githubusercontent.com/JustPixelll/ShouldIDeepMine/main/pluginmaster.json";\n', '\n')
+          p.write_text(s)
+
+          # Neutral external market-data IPC bridge; no private product identity is exposed in Should I?.
+          old = Path('ShouldISell/Services/DeepMineBridge.cs')
+          new = Path('ShouldISell/Services/ExternalMarketDataBridge.cs')
+          if not old.exists():
+              raise SystemExit('Old bridge file not found')
+          old.unlink()
+          new.write_text(r'''using System.Text.Json;
+using Dalamud.Plugin;
+using Dalamud.Plugin.Ipc;
+using Dalamud.Plugin.Ipc.Exceptions;
+using Dalamud.Plugin.Services;
+
+namespace ShouldISell.Services;
+
+/// <summary>
+/// Passive bridge for optional local market-data providers. Should I? never requests game-server
+/// data through this service; it only imports already-published snapshots and exposes safe local
+/// item-ID scopes. The provider is optional and anonymous from Should I?'s point of view.
+/// </summary>
+public sealed class ExternalMarketDataBridge : IDisposable
+{
+    public const string SnapshotUpdatedChannel = "ShouldI.ExternalMarketData.SnapshotUpdated.v1";
+    public const string GetSnapshotsChannel = "ShouldI.ExternalMarketData.GetSnapshots.v1";
+    public const string GetOwnedItemIdsChannel = "ShouldI.ExternalMarketData.GetOwnedMarketableItemIds.v1";
+    public const string GetListingItemIdsChannel = "ShouldI.ExternalMarketData.GetCurrentListingItemIds.v1";
+
+    private readonly LocalStore store;
+    private readonly InventoryScanner inventory;
+    private readonly IPlayerState playerState;
+    private readonly IPluginLog log;
+    private readonly ICallGateSubscriber<string, object> snapshotSubscriber;
+    private readonly ICallGateSubscriber<string> snapshotsSubscriber;
+    private readonly ICallGateProvider<string> ownedIdsProvider;
+    private readonly ICallGateProvider<string> listingIdsProvider;
+    private readonly Action<string> snapshotHandler;
+
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+    public ExternalMarketDataBridge(IDalamudPluginInterface pluginInterface, LocalStore store, InventoryScanner inventory, IPlayerState playerState, IPluginLog log)
+    {
+        this.store = store;
+        this.inventory = inventory;
+        this.playerState = playerState;
+        this.log = log;
+
+        snapshotSubscriber = pluginInterface.GetIpcSubscriber<string, object>(SnapshotUpdatedChannel);
+        snapshotsSubscriber = pluginInterface.GetIpcSubscriber<string>(GetSnapshotsChannel);
+        ownedIdsProvider = pluginInterface.GetIpcProvider<string>(GetOwnedItemIdsChannel);
+        listingIdsProvider = pluginInterface.GetIpcProvider<string>(GetListingItemIdsChannel);
+
+        snapshotHandler = ImportSnapshotJson;
+        snapshotSubscriber.Subscribe(snapshotHandler);
+        ownedIdsProvider.RegisterFunc(GetOwnedItemIdsJson);
+        listingIdsProvider.RegisterFunc(GetListingItemIdsJson);
+        TrySynchronizeCachedSnapshots();
+    }
+
+    public bool IsConnected { get; private set; }
+    public DateTimeOffset? LastSnapshotUtc { get; private set; }
+    public uint LastItemId { get; private set; }
+
+    public void Dispose()
+    {
+        snapshotSubscriber.Unsubscribe(snapshotHandler);
+        ownedIdsProvider.UnregisterFunc();
+        listingIdsProvider.UnregisterFunc();
+    }
+
+    public void TrySynchronizeCachedSnapshots()
+    {
+        try
+        {
+            var json = snapshotsSubscriber.InvokeFunc();
+            if (string.IsNullOrWhiteSpace(json)) return;
+            var snapshots = JsonSerializer.Deserialize<List<ExternalSnapshotDto>>(json, JsonOptions);
+            if (snapshots is null) return;
+            var imported = 0;
+            foreach (var snapshot in snapshots)
+                if (ImportSnapshot(snapshot, flush: false)) imported++;
+            if (imported > 0)
+            {
+                store.Flush();
+                IsConnected = true;
+            }
+        }
+        catch (IpcNotReadyError) { }
+        catch (Exception ex) { log.Debug(ex, "Could not synchronize optional local market snapshots."); }
+    }
+
+    private string GetOwnedItemIdsJson()
+    {
+        try { return JsonSerializer.Serialize(inventory.GetUniqueMarketableItemIds()); }
+        catch (Exception ex) { log.Debug(ex, "Could not expose owned item IDs to a local market-data provider."); return "[]"; }
+    }
+
+    private string GetListingItemIdsJson()
+    {
+        if (!playerState.IsLoaded || playerState.ContentId == 0) return "[]";
+        try
+        {
+            return JsonSerializer.Serialize(store.GetOwnListings(playerState.ContentId)
+                .Select(x => x.ItemId).Distinct().Order().ToList());
+        }
+        catch (Exception ex) { log.Debug(ex, "Could not expose listing item IDs to a local market-data provider."); return "[]"; }
+    }
+
+    private void ImportSnapshotJson(string json)
+    {
+        try
+        {
+            var snapshot = JsonSerializer.Deserialize<ExternalSnapshotDto>(json, JsonOptions);
+            if (snapshot is null || !ImportSnapshot(snapshot, flush: true)) return;
+            IsConnected = true;
+            LastSnapshotUtc = snapshot.ListingObservedAtUtc ?? snapshot.HistoryObservedAtUtc ?? DateTimeOffset.UtcNow;
+            LastItemId = snapshot.ItemId;
+        }
+        catch (Exception ex) { log.Debug(ex, "Could not import an optional local market snapshot."); }
+    }
+
+    private bool ImportSnapshot(ExternalSnapshotDto snapshot, bool flush)
+    {
+        if (snapshot.WorldId == 0 || snapshot.ItemId == 0) return false;
+        var listingAt = snapshot.ListingObservedAtUtc ?? DateTimeOffset.UtcNow;
+        store.BeginLiveObservation(snapshot.WorldId, snapshot.ItemId, listingAt);
+        if (snapshot.Sales.Count > 0)
+        {
+            var historyAt = snapshot.HistoryObservedAtUtc ?? listingAt;
+            store.SetLiveHistory(snapshot.WorldId, snapshot.ItemId,
+                snapshot.Sales.Select(x => new MarketSale(snapshot.ItemId, x.PricePerUnit, x.Quantity, x.IsHq, x.SoldAtUtc, MarketDataSource.LiveGame)),
+                historyAt);
+        }
+        store.AppendLiveListings(snapshot.WorldId, snapshot.ItemId,
+            snapshot.Listings.Select(x => new MarketListing(snapshot.ItemId, x.PricePerUnit, x.Quantity, x.IsHq, x.ListingId, x.RetainerId, x.RetainerName ?? string.Empty, listingAt, MarketDataSource.LiveGame)),
+            listingAt);
+        if (flush) store.Flush();
+        return true;
+    }
+
+    private sealed record ExternalSnapshotDto(uint WorldId, uint ItemId, DateTimeOffset? ListingObservedAtUtc, DateTimeOffset? HistoryObservedAtUtc, List<ExternalListingDto> Listings, List<ExternalSaleDto> Sales);
+    private sealed record ExternalListingDto(uint PricePerUnit, uint Quantity, bool IsHq, ulong ListingId, ulong RetainerId, string? RetainerName);
+    private sealed record ExternalSaleDto(uint PricePerUnit, uint Quantity, bool IsHq, DateTimeOffset SoldAtUtc);
+}
+''')
+
+          # Plugin property/state rename.
+          p = Path('ShouldISell/Plugin.cs')
+          s = p.read_text()
+          replacements = {
+              'public DeepMineBridge DeepMine { get; }': 'public ExternalMarketDataBridge ExternalMarketData { get; }',
+              'DeepMine = new DeepMineBridge(PluginInterface, Store, Inventory, PlayerState, Log);': 'ExternalMarketData = new ExternalMarketDataBridge(PluginInterface, Store, Inventory, PlayerState, Log);',
+              'DeepMine.Dispose();': 'ExternalMarketData.Dispose();',
+              'nextDeepMineSync': 'nextExternalDataSync',
+              '!DeepMine.IsConnected': '!ExternalMarketData.IsConnected',
+              'DeepMine.TrySynchronizeCachedSnapshots();': 'ExternalMarketData.TrySynchronizeCachedSnapshots();',
+          }
+          for a,b in replacements.items(): s = s.replace(a,b)
+          p.write_text(s)
+
+          # User-facing status text.
+          p = Path('ShouldISell/Windows/MainWindow.cs')
+          s = p.read_text().replace('Live market snapshots update passively from normal Market Board use or Should I Deep Mine?.',
+                                    'Live market snapshots update passively from normal Market Board use and compatible local data providers.')
+          p.write_text(s)
+
+          # README: remove all private companion references and keep official-safe behavior only.
+          p = Path('README.md')
+          s = p.read_text()
+          s = s.replace('Market refreshes in Should I? are **Universalis-only**. There are no Deep Scan / native queued Market Board controls inside this plugin.',
+                        'Market refreshes in Should I? are **Universalis-only**. Should I? never queues native Market Board searches.')
+          s = s.replace('- optionally, fresh snapshots published by **Should I Deep Mine?**.\n\nShould I? does not require a Deep Mine installation.\n', '')
+          start = s.find('# Optional companion: Should I Deep Mine?')
+          end = s.find('# Installation (current testing distribution)')
+          if start != -1 and end != -1 and end > start:
+              s = s[:start] + s[end:]
+          s = s.replace('### 4. Optional Deep Mine\n\nInstall Deep Mine only if you specifically want its explicit experimental native scan scopes. Should I? remains fully usable without it.\n\n', '')
+          s = s.replace('- Deep Mine IPC, when used, stays between local Dalamud plugins.\n', '')
+          p.write_text(s)
+
+          # Publishing checklist / submission copy: no private companion reference.
+          p = Path('PUBLISHING.md')
+          s = p.read_text()
+          s = s.replace('- [x] Experimental native queued scanning separated into the optional Should I Deep Mine? repository.\n', '')
+          s = s.replace('FFXIV economy decision support combining Sell, Buy, Craft, Gather, Opportunities and personal Tycoon analytics. The plugin uses Universalis plus normal locally exposed inventory/Market Board observations. It does not automatically buy/sell/reprice items and does not contain the experimental queued native Market Board scanner; that scanner lives in a separate custom-repository companion and is not part of this submission.',
+                        'FFXIV economy decision support combining Sell, Buy, Craft, Gather, Opportunities and personal Tycoon analytics. The plugin uses Universalis plus normal locally exposed inventory/Market Board observations. It does not automatically buy, sell, reprice, or queue native Market Board searches.')
+          p.write_text(s)
+
+          # Bump submission/testing version and disclose the AI-assisted icon as required by current policy.
+          p = Path('ShouldISell/ShouldISell.csproj')
+          s = p.read_text().replace('<Version>2.3.0.0</Version>', '<Version>2.3.1.0</Version>')
+          s = s.replace('It never automatically buys, sells, reprices or queues native Market Board searches.</Description>',
+                        'It never automatically buys, sells, reprices or queues native Market Board searches. The plugin icon was created with AI assistance.</Description>')
+          p.write_text(s)
+
+          p = Path('PUBLISHING.md')
+          s = p.read_text().replace('currently `2.3.0.0`', 'currently `2.3.1.0`')
+          p.write_text(s)
+
+          # Remove this one-shot workflow before checking/committing.
+          workflow = Path('.github/workflows/cleanup-private-integration.yml')
+          workflow.unlink()
+
+          # Hard guard: no private product identity remains anywhere in the public Should I? tree.
+          pattern = re.compile(r'deep\s*mine|deepmine|shouldideepmine', re.I)
+          hits = []
+          for f in root.rglob('*'):
+              if not f.is_file() or '.git' in f.parts: continue
+              try: text = f.read_text()
+              except Exception: continue
+              if pattern.search(text) or pattern.search(str(f)):
+                  hits.append(str(f))
+          if hits:
+              print('Private references remain:', *hits, sep='\n  ')
+              raise SystemExit(1)
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Remove private companion references from Should I"
+          git push origin feature/private-data-cleanup-submit
