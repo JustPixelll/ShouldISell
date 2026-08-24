@@ -42,7 +42,7 @@ public sealed class Plugin : IDalamudPlugin
     public RetainerSaleAnnouncementObserver SaleAnnouncements { get; }
     public ScoreCalculator Scores { get; }
     public MarketDataCoordinator Coordinator { get; }
-    public DeepMineBridge DeepMine { get; }
+    public ExternalMarketDataBridge ExternalMarketData { get; }
     public RetainerListingAttentionOverlay ListingAttentionOverlay { get; }
     public BuyOpportunityScanner BuyScanner { get; }
     public ProductionOpportunityScanner ProductionScanner { get; }
@@ -73,7 +73,7 @@ public sealed class Plugin : IDalamudPlugin
         SaleAnnouncements = new RetainerSaleAnnouncementObserver(ChatGui, PlayerState, Store, Log);
         Scores = new ScoreCalculator();
         Coordinator = new MarketDataCoordinator(PlayerState, Configuration, Store, Catalog, Inventory, Universalis, Scores, Log);
-        DeepMine = new DeepMineBridge(PluginInterface, Store, Inventory, PlayerState, Log);
+        ExternalMarketData = new ExternalMarketDataBridge(PluginInterface, Store, Inventory, PlayerState, Log);
         ListingAttentionOverlay = new RetainerListingAttentionOverlay(GameGui, PlayerState, Coordinator, Log);
         BuyScanner = new BuyOpportunityScanner(Configuration, PlayerState, Catalog, Inventory, Scores, Log);
         ProductionScanner = new ProductionOpportunityScanner(PlayerState, DataManager, Catalog, Inventory, Log);
@@ -118,7 +118,7 @@ public sealed class Plugin : IDalamudPlugin
         ProductionScanner.Dispose();
         ListingHistory.Dispose();
         BuyScanner.Dispose();
-        DeepMine.Dispose();
+        ExternalMarketData.Dispose();
         InventoryCoverage.Dispose();
         SaleAnnouncements.Dispose();
         SaleHistory.Dispose();
@@ -138,7 +138,7 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     private DateTimeOffset nextPassiveScan = DateTimeOffset.MinValue;
-    private DateTimeOffset nextDeepMineSync = DateTimeOffset.MinValue;
+    private DateTimeOffset nextExternalDataSync = DateTimeOffset.MinValue;
 
     private void OnFrameworkUpdate(IFramework _)
     {
@@ -151,10 +151,10 @@ public sealed class Plugin : IDalamudPlugin
         Inventory.ScanLoadedContainers();
         ListingHistory.Capture();
 
-        if (!DeepMine.IsConnected && now >= nextDeepMineSync)
+        if (!ExternalMarketData.IsConnected && now >= nextExternalDataSync)
         {
-            nextDeepMineSync = now.AddSeconds(30);
-            DeepMine.TrySynchronizeCachedSnapshots();
+            nextExternalDataSync = now.AddSeconds(30);
+            ExternalMarketData.TrySynchronizeCachedSnapshots();
         }
     }
 
