@@ -39,8 +39,7 @@ public sealed class Plugin : IDalamudPlugin
     public RetainerSaleAnnouncementObserver SaleAnnouncements { get; }
     public ScoreCalculator Scores { get; }
     public MarketDataCoordinator Coordinator { get; }
-    public SellScanContextService SellScanContext { get; }
-    public ExperimentalRefreshEngine RefreshEngine { get; }
+    public DeepMineBridge DeepMine { get; }
     public RetainerListingAttentionOverlay ListingAttentionOverlay { get; }
     public BuyOpportunityScanner BuyScanner { get; }
     public ProductionOpportunityScanner ProductionScanner { get; }
@@ -67,8 +66,7 @@ public sealed class Plugin : IDalamudPlugin
         SaleAnnouncements = new RetainerSaleAnnouncementObserver(ChatGui, PlayerState, Store, Log);
         Scores = new ScoreCalculator();
         Coordinator = new MarketDataCoordinator(PlayerState, Configuration, Store, Catalog, Inventory, Universalis, Scores, Log);
-        SellScanContext = new SellScanContextService(GameGui);
-        RefreshEngine = new ExperimentalRefreshEngine(Configuration, Framework, PlayerState, Catalog, Inventory, Store, MarketObserver, SellScanContext, Log);
+        DeepMine = new DeepMineBridge(PluginInterface, Store, Log);
         ListingAttentionOverlay = new RetainerListingAttentionOverlay(GameGui, PlayerState, Coordinator, Log);
         BuyScanner = new BuyOpportunityScanner(Configuration, PlayerState, Catalog, Inventory, Scores, Log);
         ProductionScanner = new ProductionOpportunityScanner(PlayerState, DataManager, Catalog, Inventory, Log);
@@ -82,11 +80,11 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open Should I?. /shouldi sell, /shouldi buy, /shouldi craft, /shouldi gather, /shouldi opportunities, /shouldi tycoon, /shouldi scan, /shouldi fetch, /shouldi refresh, /shouldi listings, /shouldi livescan, /shouldi audit, /shouldi stop",
+            HelpMessage = "Open Should I?. /shouldi sell, /shouldi buy, /shouldi craft, /shouldi gather, /shouldi opportunities, /shouldi tycoon, /shouldi scan, /shouldi fetch, /shouldi stop",
         });
         CommandManager.AddHandler(LegacySellCommand, new CommandInfo(OnLegacySellCommand)
         {
-            HelpMessage = "Legacy Should I Sell? command. Existing /sellcheck scan/fetch/refresh/listings/livescan/audit/stop commands remain supported.",
+            HelpMessage = "Legacy Should I Sell? command. /sellcheck scan and /sellcheck fetch remain supported; native automated deep scanning now lives in Should I Deep Mine?.",
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -104,7 +102,7 @@ public sealed class Plugin : IDalamudPlugin
         ProductionScanner.Dispose();
         ListingHistory.Dispose();
         BuyScanner.Dispose();
-        RefreshEngine.Dispose();
+        DeepMine.Dispose();
         SaleAnnouncements.Dispose();
         SaleHistory.Dispose();
         MarketObserver.Dispose();
@@ -123,16 +121,26 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     private DateTimeOffset nextPassiveScan = DateTimeOffset.MinValue;
+    private DateTimeOffset nextDeepMineSync = DateTimeOffset.MinValue;
 
     private void OnFrameworkUpdate(IFramework _)
     {
-        if (!PlayerState.IsLoaded || DateTimeOffset.UtcNow < nextPassiveScan)
+        var now = DateTimeOffset.UtcNow;
+        if (!PlayerState.IsLoaded || now < nextPassiveScan)
             return;
 
-        nextPassiveScan = DateTimeOffset.UtcNow.AddSeconds(2);
+        nextPassiveScan = now.AddSeconds(2);
         GilLedger.Capture();
         Inventory.ScanLoadedContainers();
         ListingHistory.Capture();
+
+        // This is local plugin-to-plugin IPC only. Should I? never issues native Market Board
+        // requests automatically; it merely imports data if the optional Deep Mine plugin exists.
+        if (!DeepMine.IsConnected && now >= nextDeepMineSync)
+        {
+            nextDeepMineSync = now.AddSeconds(30);
+            DeepMine.TrySynchronizeCachedSnapshots();
+        }
     }
 
     private void OnLegacySellCommand(string command, string args)
@@ -176,20 +184,7 @@ public sealed class Plugin : IDalamudPlugin
             case "fetch":
                 _ = Coordinator.RefreshOwnedFromUniversalisAsync(force: true);
                 break;
-            case "refresh":
-                RefreshEngine.StartForStaleOwnedItems();
-                break;
-            case "listings":
-                RefreshEngine.StartForCurrentListings();
-                break;
-            case "livescan":
-                RefreshEngine.StartForCurrentSellWindow();
-                break;
-            case "audit":
-                RefreshEngine.StartForAllOwnedItems();
-                break;
             case "stop":
-                RefreshEngine.Stop("Stopped by user.");
                 BuyScanner.CancelScan();
                 ProductionScanner.CancelScan();
                 break;
