@@ -1,10 +1,10 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>2.3.0.0</Version>
+    <Version>2.3.1.0</Version>
     <Author>JustPixelll</Author>
     <Name>Should I?</Name>
     <Punchline>Know what to sell, buy, craft, gather — and what to do next.</Punchline>
-    <Description>FFXIV economy decision support for Dalamud. Should I? ranks selling, buying, crafting and gathering opportunities using Universalis, in-game inventory and Market Board observations, vendor economics and your own trading history. Includes native item-tooltip insights, inventory right-click lookups, unified Opportunities, cashflow/FIFO trading analytics and personal sales/listing history. It never automatically buys, sells, reprices or queues native Market Board searches.</Description>
+    <Description>FFXIV economy decision support for Dalamud. Should I? ranks selling, buying, crafting and gathering opportunities using Universalis, in-game inventory and Market Board observations, vendor economics and your own trading history. Includes native item-tooltip insights, inventory right-click lookups, unified Opportunities, cashflow/FIFO trading analytics and personal sales/listing history. It never automatically buys, sells, reprices or queues native Market Board searches. The plugin icon was created with AI assistance.</Description>
     <PackageProjectUrl>https://github.com/JustPixelll/ShouldISell</PackageProjectUrl>
     <RepoUrl>https://github.com/JustPixelll/ShouldISell</RepoUrl>
     <IconUrl>https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/icon.png</IconUrl>
