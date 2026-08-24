@@ -41,7 +41,7 @@ public sealed class UniversalisClient : IDisposable
         {
             var ids = string.Join(',', batch);
             // Ask for up to 1,800 sales from the last 90 days. Universalis uses seconds for
-            // entriesWithin but milliseconds for statsWithin, so keep the request units explicit.
+            // entriesWithin but milliseconds for statsWithin, so keep the API units explicit.
             var entriesWithinSeconds = 90 * 24 * 60 * 60;
             var statsWithinMilliseconds = entriesWithinSeconds * 1000L;
             using var response = await http.GetAsync(
