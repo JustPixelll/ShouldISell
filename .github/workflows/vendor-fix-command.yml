@@ -1,0 +1,94 @@
+name: Vendor fix maintenance command
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  apply:
+    if: github.event.issue.pull_request && github.event.issue.number == 19 && github.event.comment.body == 'apply-vendor-fix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix/vendor-sellthrough-cap
+          fetch-depth: 0
+
+      - name: Patch vendor opportunity sizing
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('ShouldISell/Services/BuyOpportunityScanner.cs')
+          text = path.read_text(encoding='utf-8')
+
+          old = '        var demandBound = Math.Max(1, (int)Math.Ceiling(candidate.Variant.DailyVelocity * settings.MaximumHoldingDays));'
+          new = '''        // Renewable vendor stock is working inventory, not a multi-year speculative position.
+        // Higher unit profit earns a longer demand horizon, but never more than 60 days.
+        var broadUnitProfit = Math.Max(0,
+            candidate.Variant.AverageSalePrice * (1.0 - ScoreCalculator.MarketSellerTaxRate) - vendorPrice.Value);
+        var vendorWorkingDays = Math.Clamp(
+            7.0 + 14.0 * Math.Max(0, Math.Log10(1 + broadUnitProfit / 5_000.0)),
+            7.0,
+            60.0);
+        var demandBound = Math.Max(1, (int)Math.Ceiling(candidate.Variant.DailyVelocity * vendorWorkingDays));'''
+          if old not in text:
+              raise SystemExit('Vendor demand sizing anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        var liquidationDays = EstimateLiquidationDays(rating, resultingPosition);
+        if (potentialProfit < settings.MinimumProfitGil || roi < settings.MinimumRoi ||
+            liquidationDays is null || liquidationDays > settings.MaximumHoldingDays)
+            return;
+
+        var liquidityFit = Math.Exp(-liquidationDays.Value / Math.Max(1.0, settings.MaximumHoldingDays));'''
+          new = '''        var liquidationDays = EstimateLiquidationDays(rating, resultingPosition);
+        var profitHoldingDays = Math.Clamp(
+            7.0 + 14.0 * Math.Max(0, Math.Log10(1 + Math.Max(0, potentialProfit) / 5_000.0)),
+            7.0,
+            60.0);
+        var allowedHoldingDays = Math.Min(settings.MaximumHoldingDays, profitHoldingDays);
+        if (potentialProfit < settings.MinimumProfitGil || roi < settings.MinimumRoi ||
+            liquidationDays is null || liquidationDays > allowedHoldingDays)
+            return;
+
+        var liquidityFit = Math.Exp(-liquidationDays.Value / Math.Max(1.0, allowedHoldingDays));'''
+          vendor_start = text.index('    private void TryAddVendorToMarket(')
+          vendor_end = text.index('    private void TryAddMarketToVendor(', vendor_start)
+          before, block, after = text[:vendor_start], text[vendor_start:vendor_end], text[vendor_end:]
+          if old not in block:
+              raise SystemExit('Vendor liquidation gate anchor not found')
+          block = block.replace(old, new, 1)
+          old_score = '''            liquidationDays.Value,
+            settings.MaximumHoldingDays,
+            PriceAdvantage(cost, quantity, netExit),'''
+          new_score = '''            liquidationDays.Value,
+            allowedHoldingDays,
+            PriceAdvantage(cost, quantity, netExit),'''
+          if old_score not in block:
+              raise SystemExit('Vendor score horizon anchor not found')
+          block = block.replace(old_score, new_score, 1)
+          block = block.replace(
+              'Quantity is demand-capped and hard-capped to one listable working stack (maximum 99 units) rather than stockpiling renewable vendor supply.',
+              'Quantity is demand-capped to a profit-sensitive working horizon (7–60 days) and hard-capped to one listable stack rather than stockpiling renewable vendor supply.')
+          text = before + block + after
+          text = text.replace('new ProductInfoHeaderValue("ShouldI", "2.1.0")', 'new ProductInfoHeaderValue("ShouldI", "2.3.2")')
+          path.write_text(text, encoding='utf-8')
+
+          pub = Path('PUBLISHING.md')
+          if pub.exists():
+              p = pub.read_text(encoding='utf-8').replace('2.3.1.0', '2.3.2.0').replace('2.3.1', '2.3.2')
+              pub.write_text(p, encoding='utf-8')
+
+      - name: Commit to PR branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ShouldISell/Services/BuyOpportunityScanner.cs PUBLISHING.md
+          git commit -m "Fix vendor opportunity sell-through sizing"
+          git push origin HEAD:fix/vendor-sellthrough-cap
