@@ -1,0 +1,95 @@
+name: Patch Universalis 2.3.3
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/patch-universalis-2.3.3.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fix branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/universalis-request-semantics
+          fetch-depth: 0
+
+      - name: Apply Universalis request and cache fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_exact(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one match, found {count}')
+              p.write_text(text.replace(old, new), encoding='utf-8')
+
+          client = Path('ShouldISell/Services/UniversalisClient.cs')
+          text = client.read_text(encoding='utf-8')
+          text = text.replace('new ProductInfoHeaderValue("ShouldISell", "0.4.0")', 'new ProductInfoHeaderValue("ShouldISell", "2.3.3")')
+          old = '''            // 30 days is enough for the first rating model, while 1,800 max entries keeps very active
+            // commodity items useful without requesting huge payloads.
+            var entriesWithin = 90 * 24 * 60 * 60;
+            using var response = await http.GetAsync(
+                $"api/v2/history/{worldId}/{ids}?entries=1800&entriesWithin={entriesWithin}&statsWithin={entriesWithin}",
+                cancellationToken);'''
+          new = '''            // Ask for up to 1,800 sales from the last 90 days. Universalis uses seconds for
+            // entriesWithin but milliseconds for statsWithin, so keep the units explicit.
+            var entriesWithinSeconds = 90 * 24 * 60 * 60;
+            var statsWithinMilliseconds = entriesWithinSeconds * 1000L;
+            using var response = await http.GetAsync(
+                $"api/v2/history/{worldId}/{ids}?entriesToReturn=1800&entriesWithin={entriesWithinSeconds}&statsWithin={statsWithinMilliseconds}",
+                cancellationToken);'''
+          if text.count(old) != 1:
+              raise SystemExit(f'UniversalisClient history request: expected 1 match, found {text.count(old)}')
+          client.write_text(text.replace(old, new), encoding='utf-8')
+
+          scanner = Path('ShouldISell/Services/BuyOpportunityScanner.cs')
+          text = scanner.read_text(encoding='utf-8')
+          text = text.replace('new ProductInfoHeaderValue("ShouldI", "2.1.0")', 'new ProductInfoHeaderValue("ShouldI", "2.3.3")')
+          old = '''        var entriesWithin = 90 * 24 * 60 * 60;
+        using (var historyResponse = await http.GetAsync(
+                   $"api/v2/history/{worldId}/{joined}?entries=1800&entriesWithin={entriesWithin}&statsWithin={entriesWithin}", token))'''
+          new = '''        var entriesWithinSeconds = 90 * 24 * 60 * 60;
+        var statsWithinMilliseconds = entriesWithinSeconds * 1000L;
+        using (var historyResponse = await http.GetAsync(
+                   $"api/v2/history/{worldId}/{joined}?entriesToReturn=1800&entriesWithin={entriesWithinSeconds}&statsWithin={statsWithinMilliseconds}", token))'''
+          if text.count(old) != 1:
+              raise SystemExit(f'BuyOpportunityScanner history request: expected 1 match, found {text.count(old)}')
+          scanner.write_text(text.replace(old, new), encoding='utf-8')
+
+          replace_exact(
+              'ShouldISell/Services/LocalStore.cs',
+              '''            snapshot.Listings = listings;
+            // No upload timestamp means Universalis has no trustworthy observation time. Keep
+            // this null so the experimental queue can deliberately refresh the obscure item.
+            snapshot.ListingObservedAtUtc = uploadTime;
+            snapshot.UniversalisLastUploadUtc = uploadTime;''',
+              '''            snapshot.Listings = listings;
+            // Cache freshness is when Should I? successfully fetched this snapshot, not when
+            // Universalis last received an upstream upload. Preserve the upstream timestamp
+            // separately so scoring/UI can still reason about genuinely stale market evidence.
+            snapshot.ListingObservedAtUtc = DateTimeOffset.UtcNow;
+            snapshot.UniversalisLastUploadUtc = uploadTime;''')
+
+          replace_exact(
+              'ShouldISell/ShouldISell.csproj',
+              '<Version>2.3.2.0</Version>',
+              '<Version>2.3.3.0</Version>')
+
+      - name: Commit fix branch
+        run: |
+          git config user.name "JustPixelll"
+          git config user.email "pixelgod56@gmail.com"
+          git add ShouldISell/Services/UniversalisClient.cs ShouldISell/Services/BuyOpportunityScanner.cs ShouldISell/Services/LocalStore.cs ShouldISell/ShouldISell.csproj
+          git diff --cached --check
+          git commit -m "Fix Universalis request units and cache freshness"
+          git push origin HEAD:fix/universalis-request-semantics
