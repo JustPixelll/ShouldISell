@@ -120,6 +120,68 @@ public sealed class MarketDataCoordinator
         }
     }
 
+
+    public async Task RefreshSalesHistoryBenchmarksAsync(bool force = false, CancellationToken cancellationToken = default)
+    {
+        if (!playerState.IsLoaded || playerState.ContentId == 0)
+            return;
+        if (!await refreshGate.WaitAsync(0, cancellationToken))
+            return;
+
+        try
+        {
+            IsFetching = true;
+            var worldId = playerState.CurrentWorld.RowId;
+            acceptingWorldId = worldId;
+            var ids = store.GetPersonalSales(playerState.ContentId)
+                .Select(x => x.ItemId)
+                .Distinct()
+                .Where(id => catalog.Get(id).IsMarketable)
+                .ToList();
+            if (ids.Count == 0)
+            {
+                FetchStatus = "No captured marketable sales to benchmark.";
+                return;
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var historyNeeded = ids
+                .Where(itemId =>
+                {
+                    var observed = store.GetMarket(worldId, itemId)?.HistoryObservedAtUtc;
+                    return force || observed is null ||
+                           now - observed.Value > TimeSpan.FromMinutes(configuration.UniversalisHistoryTtlMinutes);
+                })
+                .ToList();
+
+            FetchStatus = historyNeeded.Count == 0
+                ? $"Sales benchmarks ready: {ids.Count:N0} sold item(s) already fresh."
+                : $"Sales benchmarks: refreshing 90-day history for {historyNeeded.Count:N0} sold item(s)...";
+
+            if (historyNeeded.Count > 0)
+                await universalis.FetchHistoryAsync(worldId, historyNeeded, cancellationToken);
+
+            store.Flush();
+            LastFetchCompletedUtc = DateTimeOffset.UtcNow;
+            FetchStatus = $"Sales benchmarks ready: {ids.Count:N0} sold item(s).";
+        }
+        catch (OperationCanceledException)
+        {
+            FetchStatus = "Sales benchmark refresh cancelled.";
+        }
+        catch (Exception ex)
+        {
+            log.Warning(ex, "Universalis sales-history benchmark refresh failed.");
+            FetchStatus = $"Sales benchmark error: {ex.Message}";
+        }
+        finally
+        {
+            acceptingWorldId = 0;
+            IsFetching = false;
+            refreshGate.Release();
+        }
+    }
+
     public IReadOnlyList<RatedOwnedItem> GetRatedOwnedItems()
     {
         if (!playerState.IsLoaded)

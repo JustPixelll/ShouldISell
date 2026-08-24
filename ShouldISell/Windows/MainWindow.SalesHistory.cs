@@ -59,6 +59,8 @@ public sealed partial class MainWindow
         ImGui.Spacing();
         DrawSalesSummary(sales);
         ImGui.Spacing();
+        DrawSalesMarketBenchmark(sales);
+        ImGui.Spacing();
 
         ImGui.SetNextItemWidth(-1);
         ImGui.InputTextWithHint("##sales-search", "Search sold item, retainer or buyer...", ref saleSearch, 128);
