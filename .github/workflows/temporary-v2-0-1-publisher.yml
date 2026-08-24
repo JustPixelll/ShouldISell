@@ -1,0 +1,30 @@
+name: Temporary Should I? v2.0.1 publisher
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - .github/v2_0_1_publish_trigger
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact v2.0.1 source
+        uses: actions/checkout@v5
+        with:
+          ref: 166cc598608bb31bc2109b2e1a9912aa8c01ce42
+          fetch-depth: 0
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view v2.0.1 >/dev/null 2>&1 && exit 0
+          gh release create v2.0.1 \
+            --target 166cc598608bb31bc2109b2e1a9912aa8c01ce42 \
+            --title "Should I? v2.0.1" \
+            --notes-file RELEASE_NOTES_v2.0.1.md
