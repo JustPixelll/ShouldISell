@@ -30,7 +30,10 @@ public enum BuyLiveState
 
 public sealed partial class SuiteWindow
 {
-    private readonly HashSet<BuyOpportunityKind> buyStrategyFilter = Enum.GetValues<BuyOpportunityKind>().ToHashSet();
+    private static readonly BuyOpportunityKind[] MarketBuyStrategyKinds = Enum.GetValues<BuyOpportunityKind>()
+        .Where(x => x != BuyOpportunityKind.VendorToMarket)
+        .ToArray();
+    private readonly HashSet<BuyOpportunityKind> buyStrategyFilter = MarketBuyStrategyKinds.ToHashSet();
     private BuyQualityFilter buyQualityFilter = BuyQualityFilter.All;
     private BuyLiveFilter buyLiveFilter = BuyLiveFilter.All;
     private int buyMinimumStars = 1;
@@ -72,7 +75,7 @@ public sealed partial class SuiteWindow
         {
             buySearch = string.Empty;
             buyStrategyFilter.Clear();
-            foreach (var kind in Enum.GetValues<BuyOpportunityKind>())
+            foreach (var kind in MarketBuyStrategyKinds)
                 buyStrategyFilter.Add(kind);
             buyQualityFilter = BuyQualityFilter.All;
             buyLiveFilter = BuyLiveFilter.All;
@@ -90,7 +93,7 @@ public sealed partial class SuiteWindow
 
     private bool DrawStrategyFilterCombo()
     {
-        var allCount = Enum.GetValues<BuyOpportunityKind>().Length;
+        var allCount = MarketBuyStrategyKinds.Length;
         var summary = buyStrategyFilter.Count switch
         {
             0 => "Strategy: none",
@@ -106,7 +109,7 @@ public sealed partial class SuiteWindow
             if (ImGui.SmallButton("All##buy-strategy-all"))
             {
                 buyStrategyFilter.Clear();
-                foreach (var kind in Enum.GetValues<BuyOpportunityKind>())
+                foreach (var kind in MarketBuyStrategyKinds)
                     buyStrategyFilter.Add(kind);
                 changed = true;
             }
@@ -117,7 +120,7 @@ public sealed partial class SuiteWindow
                 changed = true;
             }
 
-            foreach (var kind in Enum.GetValues<BuyOpportunityKind>())
+            foreach (var kind in MarketBuyStrategyKinds)
             {
                 var enabled = buyStrategyFilter.Contains(kind);
                 if (!ImGui.Checkbox($"{StrategyFilterLabel(kind)}##buy-strategy-{kind}", ref enabled))

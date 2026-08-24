@@ -48,6 +48,7 @@ public sealed class TraderStore
                 x.IsHq == purchase.IsHq &&
                 x.Quantity == purchase.Quantity &&
                 x.TotalCost == purchase.TotalCost &&
+                x.SourceKind == purchase.SourceKind &&
                 ((purchase.ListingId != 0 && x.ListingId == purchase.ListingId) ||
                  Math.Abs((x.PurchasedAtUtc - purchase.PurchasedAtUtc).TotalSeconds) <= 5));
             if (duplicate)
@@ -58,6 +59,7 @@ public sealed class TraderStore
                 .OrderByDescending(x => x.PurchasedAtUtc)
                 .Take(25_000)
                 .ToList();
+            document.Version = Math.Max(document.Version, 3);
             dirty = true;
         }
 
@@ -127,6 +129,53 @@ public sealed class TraderStore
         if (flush)
             Flush();
         return true;
+    }
+
+
+    public bool TryClassifyRecentMatchingOutflow(
+        ulong characterContentId,
+        long totalCost,
+        GilFlowCategory category,
+        string source,
+        string note,
+        TimeSpan? window = null,
+        bool flush = true)
+    {
+        if (characterContentId == 0 || totalCost <= 0)
+            return false;
+
+        var now = DateTimeOffset.UtcNow;
+        var tolerance = window ?? TimeSpan.FromMinutes(5);
+        var changed = false;
+        lock (gate)
+        {
+            var match = document.GilFlows
+                .Select((flow, index) => (flow, index))
+                .Where(x => x.flow.CharacterContentId == characterContentId &&
+                            x.flow.Amount == -totalCost &&
+                            x.flow.Category == GilFlowCategory.Unclassified &&
+                            (now - x.flow.AtUtc).Duration() <= tolerance)
+                .OrderBy(x => (now - x.flow.AtUtc).Duration())
+                .FirstOrDefault();
+
+            if (match.flow is null)
+                return false;
+
+            document.GilFlows[match.index] = match.flow with
+            {
+                Category = category,
+                Source = string.IsNullOrWhiteSpace(source) ? match.flow.Source : source,
+                AutoClassified = false,
+                Note = note,
+            };
+            document.Version = Math.Max(document.Version, 3);
+            dirty = true;
+            changed = true;
+        }
+
+        if (changed && flush)
+            Flush();
+        return changed;
     }
 
     public string GetPurchaseKey(PersonalPurchase purchase)
@@ -203,7 +252,7 @@ public sealed class TraderStore
 
     public sealed class TraderDocument
     {
-        public int Version { get; set; } = 2;
+        public int Version { get; set; } = 3;
         public List<PersonalPurchase> Purchases { get; set; } = new();
         public List<GilFlowEntry> GilFlows { get; set; } = new();
         public List<string> ExcludedPurchaseKeys { get; set; } = new();

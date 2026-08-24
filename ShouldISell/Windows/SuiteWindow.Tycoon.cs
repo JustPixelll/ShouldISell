@@ -76,7 +76,7 @@ public sealed partial class SuiteWindow
         ImGui.TextUnformatted($"Trader profile: {snapshot.ProfileName}");
         ImGui.TextWrapped(snapshot.ProfileDescription);
         if (snapshot.PurchaseCount == 0)
-            ImGui.TextDisabled("Purchase tracking starts automatically for successful Market Board buys while Should I? is running. No manual trade entry is required.");
+            ImGui.TextDisabled("Successful Market Board buys are captured automatically. Normal-gil vendor acquisitions can be entered manually under Purchases when you want their cost basis included in trading P&L.");
     }
 
     private static void DrawTraderMetrics(TraderSnapshot snapshot)
@@ -227,7 +227,7 @@ public sealed partial class SuiteWindow
     {
         if (snapshot.Strategies.Count == 0)
         {
-            ImGui.TextDisabled("No matched strategy history yet. Purchases made from a current Should I Buy? recommendation are tagged automatically; other successful Market Board buys are recorded as manual buys.");
+            ImGui.TextDisabled("No matched strategy history yet. Market Board purchases inherit a current Should I Buy? strategy when matched; manually recorded vendor acquisitions inherit the current Vendor -> Market recommendation when available.");
             return;
         }
 
@@ -257,7 +257,7 @@ public sealed partial class SuiteWindow
 
     private static void DrawPredictionAccuracy(TraderSnapshot snapshot)
     {
-        ImGui.TextWrapped("Whenever you buy an exact listing that came from the current Should I Buy? results, Tycoon stores the model's predicted exit price, liquidation time and opportunity score with the real cost basis. When Should I Sell? later captures the retainer sale, these predictions can be compared with reality.");
+        ImGui.TextWrapped("For an exact Market Board recommendation — and for a manually recorded vendor acquisition tied to the current Vendor -> Market model — Tycoon stores available exit/score predictions with the real cost basis. When Should I Sell? later captures the retainer sale, those predictions can be compared with reality. Vendor liquidation-time calibration is only stored when the entered quantity matches the recommendation.");
         ImGui.Spacing();
 
         if (snapshot.MeanAbsoluteExitPriceError is { } priceError)

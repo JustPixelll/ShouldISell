@@ -38,7 +38,7 @@ public sealed partial class SuiteWindow
             return;
         }
 
-        ImGui.TextWrapped("Scan a configurable slice of the market for executable purchases within your budget. Discovery is cheap and broad; only promising items get full listings + history and a counterfactual Should I Sell? exit simulation.");
+        ImGui.TextWrapped("Should I Buy? now keeps two acquisition lanes separate: Market Board buys are scanned/ranked independently from renewable Vendor -> Market opportunities. Each lane keeps its own cached results so one cannot crowd the other out of detailed analysis.");
         if (currentWorldId != 0)
         {
             ImGui.TextDisabled($"Current-world scope: {CurrentBuyWorldName}. Recommendations from other worlds are hidden and cannot be live-verified here.");
@@ -49,6 +49,9 @@ public sealed partial class SuiteWindow
         ImGui.Spacing();
 
         DrawBuyControls();
+        DrawVendorBuyResults();
+        ImGui.Separator();
+        ImGui.TextDisabled("MARKET BOARD ACQUISITION OPPORTUNITIES");
         DrawBuyScreenerAndDeepScan();
         DrawBuyPortfolio();
         ImGui.Separator();
@@ -181,37 +184,51 @@ public sealed partial class SuiteWindow
         }
 
         ImGui.Spacing();
-        if (!plugin.BuyScanner.IsScanning)
+        var scanner = plugin.BuyScanner;
+        if (!scanner.IsScanning)
         {
-            if (ImGui.Button("DISCOVER GOOD BUYS (UNIVERSALIS)"))
+            if (ImGui.Button("SCAN MARKET BOARD BUYS"))
             {
                 selectedBuyOpportunity = null;
                 buyDetailsOpen = false;
                 buyPortfolioPlan = null;
-                _ = plugin.BuyScanner.ScanAsync();
+                _ = scanner.ScanMarketAsync();
             }
-            Tooltip("This is the only action that starts the broad market-universe pass. It then uses detailed Universalis listings/history for the strongest candidates. LIVE VERIFY on an item is separate and never starts this broad pass.");
+            Tooltip("Scan only acquisition routes that spend gil on the Market Board: Market -> Market strategies plus Market -> Vendor. Vendor -> Market candidates do not consume this scan's deep-analysis slots.");
+
+            ImGui.SameLine();
+            if (ImGui.Button("SCAN VENDOR -> MARKET"))
+            {
+                selectedBuyOpportunity = null;
+                buyDetailsOpen = false;
+                _ = scanner.ScanVendorAsync();
+            }
+            Tooltip("Independent vendor lane. It scans only items verified in game data as normal-gil vendor purchases, then deep-checks their current-world Market Board exit. Results persist when you later run the Market Board scan.");
         }
-        else if (ImGui.Button("Stop scan"))
+        else
         {
-            plugin.BuyScanner.CancelScan();
+            if (ImGui.Button("Stop scan"))
+                scanner.CancelScan();
+            ImGui.SameLine();
+            var active = scanner.ActiveLane == BuyScanLane.Vendor ? "Vendor -> Market" : "Market Board";
+            ImGui.TextDisabled($"{active}: {scanner.Status}");
         }
 
-        ImGui.SameLine();
-        ImGui.TextDisabled(plugin.BuyScanner.Status);
-
-        if (plugin.BuyScanner.IsScanning)
+        if (!scanner.IsScanning)
         {
-            if (plugin.BuyScanner.BroadItemsTotal > 0 && plugin.BuyScanner.BroadItemsScanned < plugin.BuyScanner.BroadItemsTotal)
-            {
-                var fraction = plugin.BuyScanner.BroadItemsScanned / (float)Math.Max(1, plugin.BuyScanner.BroadItemsTotal);
-                ImGui.ProgressBar(fraction, new Vector2(-1, 0), $"Discovery {plugin.BuyScanner.BroadItemsScanned:N0}/{plugin.BuyScanner.BroadItemsTotal:N0}");
-            }
-            else if (plugin.BuyScanner.DeepItemsTotal > 0)
-            {
-                var fraction = plugin.BuyScanner.DeepItemsScanned / (float)Math.Max(1, plugin.BuyScanner.DeepItemsTotal);
-                ImGui.ProgressBar(fraction, new Vector2(-1, 0), $"Detailed Universalis {plugin.BuyScanner.DeepItemsScanned:N0}/{plugin.BuyScanner.DeepItemsTotal:N0}");
-            }
+            ImGui.TextDisabled($"Cached lanes: {scanner.GetMarketOpportunities().Count:N0} Market Board package(s) • {scanner.GetVendorOpportunities().Count:N0} Vendor -> Market package(s). {scanner.Status}");
+        }
+        else if (scanner.BroadItemsTotal > 0 && scanner.BroadItemsScanned < scanner.BroadItemsTotal)
+        {
+            var fraction = scanner.BroadItemsScanned / (float)Math.Max(1, scanner.BroadItemsTotal);
+            var active = scanner.ActiveLane == BuyScanLane.Vendor ? "Vendor discovery" : "Market discovery";
+            ImGui.ProgressBar(fraction, new Vector2(-1, 0), $"{active} {scanner.BroadItemsScanned:N0}/{scanner.BroadItemsTotal:N0}");
+        }
+        else if (scanner.DeepItemsTotal > 0)
+        {
+            var fraction = scanner.DeepItemsScanned / (float)Math.Max(1, scanner.DeepItemsTotal);
+            var active = scanner.ActiveLane == BuyScanLane.Vendor ? "Vendor detailed" : "Market detailed";
+            ImGui.ProgressBar(fraction, new Vector2(-1, 0), $"{active} {scanner.DeepItemsScanned:N0}/{scanner.DeepItemsTotal:N0}");
         }
     }
 
@@ -332,7 +349,7 @@ public sealed partial class SuiteWindow
         ImGui.TableNextRow();
         HeaderCell(0, "Rating", "Stars are broad quality bands; the 0–100 score is the stricter ranking used to compare opportunities.");
         HeaderCell(1, "Item", "Item and HQ/NQ variant selected for this basket position.");
-        HeaderCell(2, "Strategy", "Economic route used by the recommendation: market flip, sweep, split, consolidate, vendor-to-market or market-to-vendor.");
+        HeaderCell(2, "Strategy", "Economic route used by the recommendation: market flip, sweep, split, consolidate or market-to-vendor.");
         HeaderCell(3, "Buy", "Number of new units to acquire for this position.");
         HeaderCell(4, "Cost", "Total acquisition cost for the recommended package, including reported buyer tax on Market Board listings.");
         HeaderCell(5, "Potential", "Modeled profit if the recommended exit succeeds at the target net value.");
@@ -364,6 +381,80 @@ public sealed partial class SuiteWindow
         ImGui.TableSetColumnIndex(7); ImGui.TextUnformatted(Percent(row.Roi));
         ImGui.TableSetColumnIndex(8); ImGui.TextUnformatted(LiveStateLabel(GetBuyLiveState(row)));
         ImGui.TableSetColumnIndex(9); ImGui.TextUnformatted(Days(row.EstimatedLiquidationDays));
+    }
+
+
+    private void DrawVendorBuyResults()
+    {
+        var all = GetCurrentWorldVendorOpportunities()
+            .OrderByDescending(x => x.OpportunityScore)
+            .ThenByDescending(x => x.RiskAdjustedProfit)
+            .ThenByDescending(x => x.PotentialProfit)
+            .ToList();
+
+        if (!ImGui.CollapsingHeader($"VENDOR -> MARKET OPPORTUNITIES ({all.Count:N0})##vendor-buy-results", ImGuiTreeNodeFlags.DefaultOpen))
+            return;
+
+        ImGui.TextWrapped("Renewable NPC supply gets its own opportunity board. This table never competes with Market Board acquisitions for shortlist/deep-analysis slots, and a Market Board scan does not erase these results.");
+        ImGui.SetNextItemWidth(320 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##vendor-buy-search", "Filter vendor opportunities by item...", ref vendorBuySearch, 128);
+        var rows = all
+            .Where(x => string.IsNullOrWhiteSpace(vendorBuySearch) || x.Item.Name.Contains(vendorBuySearch, StringComparison.CurrentCultureIgnoreCase))
+            .ToList();
+        ImGui.SameLine();
+        ImGui.TextDisabled($"{rows.Count:N0}/{all.Count:N0} shown");
+
+        if (rows.Count == 0)
+        {
+            ImGui.TextDisabled(plugin.BuyScanner.LastVendorCompletedUtc is null
+                ? "No vendor scan yet. Use SCAN VENDOR -> MARKET above."
+                : "No current Vendor -> Market opportunity survives the configured ROI/profit/holding rules.");
+            return;
+        }
+
+        var height = Math.Min(285, 48 + rows.Count * 25) * ImGuiHelpers.GlobalScale;
+        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
+        if (!ImGui.BeginTable("##vendor-buy-table", 10, flags, new Vector2(0, height)))
+            return;
+
+        ImGui.TableSetupScrollFreeze(0, 1);
+        ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.WidthFixed, 118 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn("Vendor/u", ImGuiTableColumnFlags.WidthFixed, 78 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Buy", ImGuiTableColumnFlags.WidthFixed, 52 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 88 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Exit @", ImGuiTableColumnFlags.WidthFixed, 82 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Stack", ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Profit", ImGuiTableColumnFlags.WidthFixed, 88 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("ROI", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Liquidate", ImGuiTableColumnFlags.WidthFixed, 72 * ImGuiHelpers.GlobalScale);
+        ImGui.TableHeadersRow();
+
+        foreach (var row in rows)
+        {
+            ImGui.TableNextRow();
+            ImGui.TableSetColumnIndex(0);
+            if (ImGui.Selectable($"{Stars(row.Stars)} {row.OpportunityScore:0}##vendor-buy-{row.Item.ItemId}-{row.AcquisitionCost}", false, ImGuiSelectableFlags.SpanAllColumns))
+            {
+                selectedBuyOpportunity = row;
+                buyDetailsOpen = true;
+            }
+            Tooltip($"Click for full analysis. Vendor supply is renewable; the recommendation targets one working listing rather than a speculative stockpile.\nConfidence: {row.Confidence:P0}\nRecent sales: {row.SalesSampleCount:N0}");
+            ImGui.TableSetColumnIndex(1);
+            ImGui.TextUnformatted(row.Item.Name);
+            ItemNameContextMenu($"##copy-vendor-buy-{row.Item.ItemId}-{row.AcquisitionCost}", row.Item.Name);
+            ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted(Gil(row.AverageAcquisitionUnitCost));
+            ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted(row.AcquireQuantity.ToString("N0"));
+            ImGui.TableSetColumnIndex(4); ImGui.TextUnformatted(Gil(row.AcquisitionCost));
+            ImGui.TableSetColumnIndex(5); ImGui.TextUnformatted(row.SuggestedExitUnitPrice is { } exit ? $"{exit:N0}g" : "—");
+            ImGui.TableSetColumnIndex(6); ImGui.TextUnformatted(row.SuggestedExitStackSize.ToString("N0"));
+            ImGui.TableSetColumnIndex(7); ImGui.TextUnformatted(Gil(row.PotentialProfit));
+            ImGui.TableSetColumnIndex(8); ImGui.TextUnformatted(Percent(row.Roi));
+            ImGui.TableSetColumnIndex(9); ImGui.TextUnformatted(Days(row.EstimatedLiquidationDays));
+        }
+
+        ImGui.EndTable();
+        ImGui.TextDisabled("Actually bought from the NPC? Record it under Should I Tycoon? -> Purchases so FIFO profit tracking gets the real vendor cost basis.");
     }
 
     private void DrawBuyResults()
