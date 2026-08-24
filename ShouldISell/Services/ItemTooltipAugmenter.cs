@@ -200,12 +200,16 @@ public sealed unsafe class ItemTooltipAugmenter : IDisposable
     {
         tooltip->WindowNode->SetHeight(height);
         tooltip->WindowNode->AtkResNode.SetHeight(height);
-        var componentRoot = tooltip->WindowNode->Component?.UldManager.RootNode;
-        if (componentRoot != null)
+        var component = tooltip->WindowNode->Component;
+        if (component != null)
         {
-            componentRoot->SetHeight(height);
-            if (componentRoot->PrevSiblingNode != null)
-                componentRoot->PrevSiblingNode->SetHeight(height);
+            var componentRoot = component->UldManager.RootNode;
+            if (componentRoot != null)
+            {
+                componentRoot->SetHeight(height);
+                if (componentRoot->PrevSiblingNode != null)
+                    componentRoot->PrevSiblingNode->SetHeight(height);
+            }
         }
         if (tooltip->RootNode != null)
             tooltip->RootNode->SetHeight(height);
