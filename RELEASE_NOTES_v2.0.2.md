@@ -2,7 +2,7 @@
 
 ## Sales History — realized-price benchmark
 
-- Adds a new benchmark overview comparing your captured net sale prices with Phoenix 90-day historical Market Board prices for the same item/HQ variant.
+- Adds a new benchmark overview comparing your captured net sale prices with your current world's trailing 90-day historical Market Board prices for the same item/HQ variant.
 - Shows your average realized net/unit, the historical unit-weighted average and unit-weighted median, per-unit differences, and total gil difference across the units you actually sold.
 - Adds portfolio-level totals: actual covered net gil, the equivalent historical-average/median benchmark, and the aggregate difference in gil and percent.
 - Historical market prices are converted to a conservative after-5%-seller-tax net so they are comparable with the personal sales ledger.
