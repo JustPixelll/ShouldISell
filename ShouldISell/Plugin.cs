@@ -25,6 +25,8 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IGameInteropProvider GameInterop { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
+    [PluginService] internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
+    [PluginService] internal static IContextMenu ContextMenu { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     public Configuration Configuration { get; }
@@ -33,20 +35,22 @@ public sealed class Plugin : IDalamudPlugin
     public GilLedgerTracker GilLedger { get; }
     public GameItemCatalog Catalog { get; }
     public InventoryScanner Inventory { get; }
+    public InventoryCoverageMonitor InventoryCoverage { get; }
     public UniversalisClient Universalis { get; }
     public MarketBoardObserver MarketObserver { get; }
     public RetainerSaleHistoryObserver SaleHistory { get; }
     public RetainerSaleAnnouncementObserver SaleAnnouncements { get; }
     public ScoreCalculator Scores { get; }
     public MarketDataCoordinator Coordinator { get; }
-    public SellScanContextService SellScanContext { get; }
-    public ExperimentalRefreshEngine RefreshEngine { get; }
+    public DeepMineBridge DeepMine { get; }
     public RetainerListingAttentionOverlay ListingAttentionOverlay { get; }
     public BuyOpportunityScanner BuyScanner { get; }
+    public ProductionOpportunityScanner ProductionScanner { get; }
     public MarketPurchaseObserver PurchaseObserver { get; }
     public TraderAnalyzer TraderAnalyzer { get; }
     public ListingHistoryTracker ListingHistory { get; }
     public TycoonInsightService TycoonInsights { get; }
+    public ItemUiIntegration ItemUi { get; }
 
     public readonly WindowSystem WindowSystem = new("ShouldI");
     private readonly SuiteWindow suiteWindow;
@@ -60,35 +64,38 @@ public sealed class Plugin : IDalamudPlugin
         GilLedger = new GilLedgerTracker(GameInventory, PlayerState, TraderStore, Log);
         Catalog = new GameItemCatalog(DataManager);
         Inventory = new InventoryScanner(PlayerState, Catalog, Store, Log);
+        InventoryCoverage = new InventoryCoverageMonitor(AddonLifecycle, Configuration);
         Universalis = new UniversalisClient(Log);
         MarketObserver = new MarketBoardObserver(MarketBoard, PlayerState, Store, Log);
         SaleHistory = new RetainerSaleHistoryObserver(GameInterop, PlayerState, Store, Log);
         SaleAnnouncements = new RetainerSaleAnnouncementObserver(ChatGui, PlayerState, Store, Log);
         Scores = new ScoreCalculator();
         Coordinator = new MarketDataCoordinator(PlayerState, Configuration, Store, Catalog, Inventory, Universalis, Scores, Log);
-        SellScanContext = new SellScanContextService(GameGui);
-        RefreshEngine = new ExperimentalRefreshEngine(Configuration, Framework, PlayerState, Catalog, Inventory, Store, MarketObserver, SellScanContext, Log);
+        DeepMine = new DeepMineBridge(PluginInterface, Store, Inventory, PlayerState, Log);
         ListingAttentionOverlay = new RetainerListingAttentionOverlay(GameGui, PlayerState, Coordinator, Log);
         BuyScanner = new BuyOpportunityScanner(Configuration, PlayerState, Catalog, Inventory, Scores, Log);
+        ProductionScanner = new ProductionOpportunityScanner(PlayerState, DataManager, Catalog, Inventory, Log);
         PurchaseObserver = new MarketPurchaseObserver(MarketBoard, PlayerState, TraderStore, BuyScanner, Log);
         TraderAnalyzer = new TraderAnalyzer(PlayerState, TraderStore, Store, Coordinator, Catalog);
         ListingHistory = new ListingHistoryTracker(PluginInterface, PlayerState, Store, Log);
         TycoonInsights = new TycoonInsightService(PlayerState, Store, Catalog, ListingHistory);
 
         suiteWindow = new SuiteWindow(this);
+        ItemUi = new ItemUiIntegration(this, GameGui, ContextMenu, suiteWindow);
         WindowSystem.AddWindow(suiteWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open Should I?. /shouldi sell, /shouldi buy, /shouldi tycoon, /shouldi scan, /shouldi fetch, /shouldi refresh, /shouldi listings, /shouldi livescan, /shouldi audit, /shouldi stop",
+            HelpMessage = "Open Should I?. /shouldi sell, /shouldi buy, /shouldi craft, /shouldi gather, /shouldi opportunities, /shouldi tycoon, /shouldi fetch, /shouldi stop",
         });
         CommandManager.AddHandler(LegacySellCommand, new CommandInfo(OnLegacySellCommand)
         {
-            HelpMessage = "Legacy Should I Sell? command. Existing /sellcheck scan/fetch/refresh/listings/livescan/audit/stop commands remain supported.",
+            HelpMessage = "Legacy Should I Sell? command. /sellcheck fetch refreshes known owned market data from Universalis.",
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         PluginInterface.UiBuilder.Draw += ListingAttentionOverlay.Draw;
+        PluginInterface.UiBuilder.Draw += ItemUi.Draw;
         PluginInterface.UiBuilder.OpenMainUi += OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi += OpenMainUi;
 
@@ -98,10 +105,14 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnFrameworkUpdate;
+        PluginInterface.UiBuilder.Draw -= ItemUi.Draw;
+        ItemUi.Dispose();
         PurchaseObserver.Dispose();
+        ProductionScanner.Dispose();
         ListingHistory.Dispose();
         BuyScanner.Dispose();
-        RefreshEngine.Dispose();
+        DeepMine.Dispose();
+        InventoryCoverage.Dispose();
         SaleAnnouncements.Dispose();
         SaleHistory.Dispose();
         MarketObserver.Dispose();
@@ -120,16 +131,24 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     private DateTimeOffset nextPassiveScan = DateTimeOffset.MinValue;
+    private DateTimeOffset nextDeepMineSync = DateTimeOffset.MinValue;
 
     private void OnFrameworkUpdate(IFramework _)
     {
-        if (!PlayerState.IsLoaded || DateTimeOffset.UtcNow < nextPassiveScan)
+        var now = DateTimeOffset.UtcNow;
+        if (!PlayerState.IsLoaded || now < nextPassiveScan)
             return;
 
-        nextPassiveScan = DateTimeOffset.UtcNow.AddSeconds(2);
+        nextPassiveScan = now.AddSeconds(2);
         GilLedger.Capture();
         Inventory.ScanLoadedContainers();
         ListingHistory.Capture();
+
+        if (!DeepMine.IsConnected && now >= nextDeepMineSync)
+        {
+            nextDeepMineSync = now.AddSeconds(30);
+            DeepMine.TrySynchronizeCachedSnapshots();
+        }
     }
 
     private void OnLegacySellCommand(string command, string args)
@@ -147,40 +166,20 @@ public sealed class Plugin : IDalamudPlugin
         var trimmed = args.Trim();
         switch (trimmed.ToLowerInvariant())
         {
-            case "sell":
-                suiteWindow.OpenModule(ShouldIModule.Sell);
-                break;
-            case "buy":
-                suiteWindow.OpenModule(ShouldIModule.Buy);
-                break;
-            case "tycoon":
-                suiteWindow.OpenModule(ShouldIModule.Tycoon);
-                break;
-            case "scan":
-                Inventory.ScanLoadedContainers(forceFlush: true);
-                break;
-            case "fetch":
-                _ = Coordinator.RefreshOwnedFromUniversalisAsync(force: true);
-                break;
-            case "refresh":
-                RefreshEngine.StartForStaleOwnedItems();
-                break;
-            case "listings":
-                RefreshEngine.StartForCurrentListings();
-                break;
-            case "livescan":
-                RefreshEngine.StartForCurrentSellWindow();
-                break;
-            case "audit":
-                RefreshEngine.StartForAllOwnedItems();
-                break;
+            case "sell": suiteWindow.OpenModule(ShouldIModule.Sell); break;
+            case "buy": suiteWindow.OpenModule(ShouldIModule.Buy); break;
+            case "craft": suiteWindow.OpenModule(ShouldIModule.Craft); break;
+            case "gather": suiteWindow.OpenModule(ShouldIModule.Gather); break;
+            case "opportunities":
+            case "opportunity":
+            case "do": suiteWindow.OpenModule(ShouldIModule.Opportunities); break;
+            case "tycoon": suiteWindow.OpenModule(ShouldIModule.Tycoon); break;
+            case "fetch": _ = Coordinator.RefreshOwnedFromUniversalisAsync(force: true); break;
             case "stop":
-                RefreshEngine.Stop("Stopped by user.");
                 BuyScanner.CancelScan();
+                ProductionScanner.CancelScan();
                 break;
-            default:
-                suiteWindow.Toggle();
-                break;
+            default: suiteWindow.Toggle(); break;
         }
     }
 

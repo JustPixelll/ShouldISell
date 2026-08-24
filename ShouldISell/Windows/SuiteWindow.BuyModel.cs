@@ -62,9 +62,7 @@ public sealed partial class SuiteWindow
         if (raw.AcquireQuantity > 0 && currentOwned >= raw.ExistingQuantity + raw.AcquireQuantity)
             return null;
 
-        var live = !plugin.RefreshEngine.IsRunning
-            ? plugin.Store.GetMarket(raw.WorldId, raw.Item.ItemId)
-            : null;
+        var live = plugin.Store.GetMarket(raw.WorldId, raw.Item.ItemId);
         var liveAt = live?.CurrentSource == MarketDataSource.LiveGame &&
                      live.ListingObservedAtUtc is { } observed &&
                      observed > raw.AnalysedAtUtc
@@ -176,7 +174,7 @@ public sealed partial class SuiteWindow
         if (opportunity.Kind == BuyOpportunityKind.MarketToVendor)
         {
             var verificationNotes = opportunity.Notes.ToList();
-            verificationNotes.Add($"Native FFXIV Deep Scan at {liveAt.ToLocalTime():HH:mm:ss} confirmed the acquisition listing(s) for this guaranteed vendor exit.");
+            verificationNotes.Add($"Fresh FFXIV snapshot at {liveAt.ToLocalTime():HH:mm:ss} confirmed the acquisition listing(s) for this guaranteed vendor exit.");
             return opportunity with
             {
                 MarketFreshnessUtc = liveAt,
@@ -251,7 +249,7 @@ public sealed partial class SuiteWindow
             baseScore = Math.Min(baseScore, 34.0);
 
         var notes = opportunity.Notes.ToList();
-        notes.Add($"Native FFXIV Deep Scan re-rated this opportunity from the fresh {liveAt.ToLocalTime():HH:mm:ss} board/history snapshot. Exit price, confidence, liquidity, profit and the displayed rating now react to that native data.");
+        notes.Add($"Fresh FFXIV snapshot re-rated this opportunity from the fresh {liveAt.ToLocalTime():HH:mm:ss} board/history snapshot. Exit price, confidence, liquidity, profit and the displayed rating now react to that native data.");
         if (violatesMinimum)
             notes.Add("The native re-score no longer satisfies at least one configured minimum (profit, ROI or holding time), so its base score is capped below the normal recommendation range.");
 
@@ -285,7 +283,7 @@ public sealed partial class SuiteWindow
     {
         var score = Math.Min(opportunity.OpportunityScore, 20.0);
         var notes = opportunity.Notes.ToList();
-        notes.Add("Native FFXIV Deep Scan changed the recommendation: at least one required acquisition listing is no longer present at the scanned listing ID, price and quantity.");
+        notes.Add("Fresh FFXIV snapshot changed the recommendation: at least one required acquisition listing is no longer present at the scanned listing ID, price and quantity.");
         if (!string.IsNullOrWhiteSpace(extra))
             notes.Add(extra);
         return opportunity with

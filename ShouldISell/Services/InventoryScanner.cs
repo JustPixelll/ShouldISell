@@ -107,6 +107,43 @@ public sealed unsafe class InventoryScanner
             .Order()
             .ToList();
 
+    public IReadOnlyList<uint> GetUniqueMarketableSaddlebagItemIds()
+        => GetKnownOwnedStacks()
+            .Where(x => x.OwnerKind == InventoryOwnerKind.Player && IsSaddlebag(x.Container))
+            .Select(x => x.ItemId)
+            .Distinct()
+            .Order()
+            .ToList();
+
+    public IReadOnlyList<uint> GetUniqueMarketablePlayerAndSaddlebagsItemIds()
+        => GetKnownOwnedStacks()
+            .Where(x => x.OwnerKind == InventoryOwnerKind.Player)
+            .Select(x => x.ItemId)
+            .Distinct()
+            .Order()
+            .ToList();
+
+    public IReadOnlyList<uint> GetUniqueMarketableKnownRetainerInventoryItemIds()
+        => GetKnownOwnedStacks()
+            .Where(x => x.OwnerKind == InventoryOwnerKind.Retainer && IsRetainerInventoryPage(x.Container))
+            .Select(x => x.ItemId)
+            .Distinct()
+            .Order()
+            .ToList();
+
+    public IReadOnlyList<uint> GetUniqueMarketableCurrentListingItemIds()
+    {
+        if (!playerState.IsLoaded || playerState.ContentId == 0)
+            return Array.Empty<uint>();
+        ScanLoadedContainers();
+        return store.GetOwnListings(playerState.ContentId)
+            .Select(x => x.ItemId)
+            .Where(catalog.IsMarketable)
+            .Distinct()
+            .Order()
+            .ToList();
+    }
+
     public IReadOnlyList<uint> GetUniqueMarketableActiveRetainerInventoryItemIds()
     {
         var activeRetainerId = GetActiveRetainerId();
@@ -141,6 +178,10 @@ public sealed unsafe class InventoryScanner
 
     private static bool IsNormalPlayerInventory(InventoryType type)
         => type is InventoryType.Inventory1 or InventoryType.Inventory2 or InventoryType.Inventory3 or InventoryType.Inventory4;
+
+    private static bool IsSaddlebag(InventoryType type)
+        => type is InventoryType.SaddleBag1 or InventoryType.SaddleBag2 or
+                   InventoryType.PremiumSaddleBag1 or InventoryType.PremiumSaddleBag2;
 
     private static bool IsRetainerInventoryPage(InventoryType type)
         => type is InventoryType.RetainerPage1 or InventoryType.RetainerPage2 or InventoryType.RetainerPage3 or
@@ -208,7 +249,7 @@ public sealed unsafe class InventoryScanner
     {
         var container = manager->GetInventoryContainer(type);
         if (container == null || !container->IsLoaded)
-            return; // Important: leave the previous snapshot intact when FFXIV has unloaded this container.
+            return;
 
         var items = new List<OwnedStack>();
         for (var slot = 0; slot < container->Size; slot++)

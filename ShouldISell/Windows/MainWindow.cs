@@ -67,6 +67,7 @@ public sealed partial class MainWindow : Window, IDisposable
 
     public override void Draw()
     {
+        DrawInventoryCoverageWarning();
         DrawHeader();
         ImGui.Separator();
 
@@ -89,7 +90,7 @@ public sealed partial class MainWindow : Window, IDisposable
             }
             if (ImGui.BeginTabItem("Market Refresh"))
             {
-                DrawRefresh();
+                DrawUniversalisRefresh();
                 ImGui.EndTabItem();
             }
             if (ImGui.BeginTabItem("Settings"))
@@ -111,9 +112,6 @@ public sealed partial class MainWindow : Window, IDisposable
         ImGui.TextWrapped("Every known marketable item is rated independently. Stars answer ‘is this an excellent selling situation?’, while the 0–100 opportunity score is deliberately stricter so 100 is reserved for an unusually complete fit across value, price, demand, liquidity and market health. Est. net is the expected payout of ONE recommended listing, not the whole stockpile.");
         ImGui.Spacing();
 
-        if (ImGui.Button("Scan loaded inventories"))
-            plugin.Inventory.ScanLoadedContainers(forceFlush: true);
-        ImGui.SameLine();
         if (!plugin.Coordinator.IsFetching)
         {
             if (ImGui.Button("Update from Universalis"))
@@ -122,21 +120,6 @@ public sealed partial class MainWindow : Window, IDisposable
         else
         {
             ImGui.TextDisabled("Universalis update running...");
-        }
-        ImGui.SameLine();
-        if (!plugin.RefreshEngine.IsRunning)
-        {
-            if (ImGui.Button("Live scan open sell inventory"))
-                plugin.RefreshEngine.StartForCurrentSellWindow();
-            ImGui.SameLine();
-            if (ImGui.Button("FULL LIVE AUDIT — ALL OWNED"))
-                plugin.RefreshEngine.StartForAllOwnedItems();
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Force-request every unique marketable item in all known player, saddlebag, cached retainer and current-listing snapshots, one at a time. Freshness is ignored.");
-        }
-        else
-        {
-            ImGui.TextDisabled("Live market scan running...");
         }
         ImGui.TextDisabled(plugin.Coordinator.FetchStatus);
     }
@@ -758,17 +741,7 @@ public sealed partial class MainWindow : Window, IDisposable
 
     private void DrawCurrentListings()
     {
-        if (!plugin.RefreshEngine.IsRunning)
-        {
-            if (ImGui.Button("Refresh current listings"))
-                plugin.RefreshEngine.StartForCurrentListings();
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Force a fresh in-game Market Board request for each unique item you currently have listed. This does not scan every owned item.");
-        }
-        else
-        {
-            ImGui.TextDisabled($"Live refresh: {plugin.RefreshEngine.Status}");
-        }
+        ImGui.TextDisabled("Live market snapshots update passively from normal Market Board use or Should I Deep Mine?.");
         ImGui.Spacing();
 
         ImGui.SetNextItemWidth(-1);
@@ -1055,64 +1028,6 @@ public sealed partial class MainWindow : Window, IDisposable
         ImGui.EndTooltip();
     }
 
-    private void DrawRefresh()
-    {
-        var engine = plugin.RefreshEngine;
-        ImGui.TextWrapped("Experimental live-market mode: request owned item IDs one at a time through FFXIV's native ItemSearch info proxy. Use the open-sell scan for one visible scope, the full audit to force-refresh every known owned item regardless of freshness, or the stale queue for maintenance. Live packets are used immediately by this addon. If Dalamud market-board collection is enabled, Dalamud's own uploader can also contribute the observation to Universalis.");
-        ImGui.Spacing();
-
-        var context = engine.CurrentSellContext;
-        ImGui.TextDisabled($"Detected sell scope: {context.Label}");
-        ImGui.TextWrapped(context.Detail);
-        ImGui.Spacing();
-
-        if (!engine.IsRunning)
-        {
-            if (ImGui.Button("LIVE SCAN OPEN SELL INVENTORY", new Vector2(285 * ImGuiHelpers.GlobalScale, 0)))
-                engine.StartForCurrentSellWindow();
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Force-request every unique marketable item in the currently open player/retainer sell inventory, one at a time — even if Universalis says it is fresh.");
-
-            ImGui.SameLine();
-            if (ImGui.Button("FULL LIVE AUDIT — ALL OWNED", new Vector2(255 * ImGuiHelpers.GlobalScale, 0)))
-                engine.StartForAllOwnedItems();
-            if (ImGui.IsItemHovered())
-            {
-                var auditCount = plugin.Inventory.GetUniqueMarketableItemIds().Count;
-                var minimumMinutes = auditCount * Math.Max(1000, plugin.Configuration.ExperimentalRequestSpacingMs) / 60000.0;
-                ImGui.SetTooltip($"Force-refresh all {auditCount:N0} unique marketable item IDs known across inventory, saddlebags, cached retainers and current listings.\nFreshness is ignored. Minimum spacing alone is ~{minimumMinutes:0.#} min; packet waits/retries can make the audit longer.");
-            }
-
-            ImGui.SameLine();
-            if (ImGui.Button("Refresh stale owned items", new Vector2(200 * ImGuiHelpers.GlobalScale, 0)))
-                engine.StartForStaleOwnedItems();
-        }
-        else
-        {
-            if (ImGui.Button("STOP", new Vector2(100 * ImGuiHelpers.GlobalScale, 0)))
-                engine.Stop("Stopped by user.");
-        }
-        ImGui.SameLine();
-        ImGui.TextWrapped(engine.Status);
-
-        if (engine.InitialCount > 0)
-        {
-            var done = engine.CompletedCount + engine.FailedCount;
-            ImGui.ProgressBar(Math.Clamp((float)done / engine.InitialCount, 0, 1), new Vector2(-1, 0), $"{done}/{engine.InitialCount}");
-            ImGui.TextDisabled($"Completed {engine.CompletedCount} | Failed {engine.FailedCount} | Remaining {engine.Remaining}");
-        }
-
-        if (engine.Current is { } current)
-        {
-            ImGui.Separator();
-            ImGui.Text($"Current: {current.ItemName} (#{current.ItemId})");
-            ImGui.TextDisabled($"Attempts: {current.Attempts} | previous observation: {Age(current.LastUploadUtc)}");
-        }
-
-        ImGui.Separator();
-        ImGui.TextWrapped("Note: an old last-sale timestamp does not trigger repeated refreshes by itself. The queue is driven by listing/observation freshness. If an item was checked today and last sold 40 days ago, that is useful evidence of low demand.");
-    }
-
     private void DrawSettings()
     {
         var cfg = plugin.Configuration;
@@ -1127,26 +1042,6 @@ public sealed partial class MainWindow : Window, IDisposable
         }
         ImGui.TextDisabled($"Current reference: {cfg.ValueThresholdGil:N0}g expected net for one recommended listing. Example: a recommended stack of 100 × 100g net ≈ 10,000g and sits near a 10,000g reference; a recommended stack of 1 × 100g does not, even if you own 100.");
 
-        ImGui.Separator();
-        ImGui.Text("Technical refresh controls");
-        var stale = cfg.ExperimentalRefreshStaleHours;
-        if (ImGui.SliderInt("Stale after (hours)", ref stale, 1, 168))
-        {
-            cfg.ExperimentalRefreshStaleHours = stale;
-            cfg.Save();
-        }
-        var spacing = cfg.ExperimentalRequestSpacingMs;
-        if (ImGui.SliderInt("Game request spacing (ms)", ref spacing, 1000, 8000))
-        {
-            cfg.ExperimentalRequestSpacingMs = spacing;
-            cfg.Save();
-        }
-        var timeout = cfg.ExperimentalRequestTimeoutMs;
-        if (ImGui.SliderInt("Request timeout (ms)", ref timeout, 5000, 30000))
-        {
-            cfg.ExperimentalRequestTimeoutMs = timeout;
-            cfg.Save();
-        }
     }
 
     private static void DrawAboutScore()

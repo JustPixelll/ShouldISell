@@ -2,7 +2,7 @@ using Dalamud.Plugin.Services;
 
 namespace ShouldISell.Services;
 
-public sealed class MarketDataCoordinator
+public sealed partial class MarketDataCoordinator
 {
     private readonly IPlayerState playerState;
     private readonly Configuration configuration;
