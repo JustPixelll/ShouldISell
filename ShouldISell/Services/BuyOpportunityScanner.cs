@@ -53,7 +53,7 @@ public sealed class BuyOpportunityScanner : IDisposable
 
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(30);
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "2.1.0"));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "2.3.3"));
     }
 
     public bool IsScanning { get; private set; }
@@ -955,9 +955,10 @@ public sealed class BuyOpportunityScanner : IDisposable
             }
         }
 
-        var entriesWithin = 90 * 24 * 60 * 60;
+        var entriesWithinSeconds = 90 * 24 * 60 * 60;
+        var statsWithinMilliseconds = entriesWithinSeconds * 1000L;
         using (var historyResponse = await http.GetAsync(
-                   $"api/v2/history/{worldId}/{joined}?entries=1800&entriesWithin={entriesWithin}&statsWithin={entriesWithin}", token))
+                   $"api/v2/history/{worldId}/{joined}?entriesToReturn=1800&entriesWithin={entriesWithinSeconds}&statsWithin={statsWithinMilliseconds}", token))
         {
             historyResponse.EnsureSuccessStatusCode();
             await using var stream = await historyResponse.Content.ReadAsStreamAsync(token);
