@@ -8,7 +8,7 @@ public sealed partial class SuiteWindow
     {
         ImGui.Spacing();
         ImGui.TextUnformatted("Live data");
-        ImGui.TextDisabled("Read-only in Should I?. Native queued scans live in the separate experimental Should I Deep Mine? plugin.");
+        ImGui.TextDisabled("Read-only in Should I?. Live snapshots can update from normal Market Board use or compatible local data providers.");
 
         var currentWorldId = CurrentBuyWorldId;
         if (currentWorldId == 0)
@@ -23,10 +23,6 @@ public sealed partial class SuiteWindow
             return;
         }
 
-        ImGui.TextDisabled(plugin.DeepMine.IsConnected
-            ? $"Deep Mine link: {plugin.DeepMine.Status}"
-            : "Deep Mine link: not connected. Normal Market Board browsing can still refresh passive live snapshots.");
-
         var live = plugin.Store.GetMarket(currentWorldId, opportunity.Item.ItemId);
         var liveAt = live?.CurrentSource == MarketDataSource.LiveGame ? live.ListingObservedAtUtc : null;
         if (liveAt is null)
@@ -40,7 +36,7 @@ public sealed partial class SuiteWindow
 
         if (liveAt.Value < opportunity.AnalysedAtUtc)
         {
-            ImGui.TextDisabled("That live snapshot predates this recommendation. Refresh it through normal Market Board use or Should I Deep Mine? before relying on it for this trade.");
+            ImGui.TextDisabled("That live snapshot predates this recommendation. Refresh it through normal Market Board use before relying on it for this trade.");
             return;
         }
 
