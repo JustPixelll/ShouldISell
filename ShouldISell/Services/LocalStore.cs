@@ -329,9 +329,10 @@ public sealed class LocalStore
                 return;
 
             snapshot.Listings = listings;
-            // No upload timestamp means Universalis has no trustworthy observation time. Keep
-            // this null so the experimental queue can deliberately refresh the obscure item.
-            snapshot.ListingObservedAtUtc = uploadTime;
+            // Cache freshness is when Should I? successfully fetched this snapshot, not when
+            // Universalis last received an upstream upload. Preserve the upstream timestamp
+            // separately so scoring/UI can still reason about genuinely stale market evidence.
+            snapshot.ListingObservedAtUtc = DateTimeOffset.UtcNow;
             snapshot.UniversalisLastUploadUtc = uploadTime;
             snapshot.CurrentSource = MarketDataSource.Universalis;
             dirty = true;
