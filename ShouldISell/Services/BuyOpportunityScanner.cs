@@ -5,6 +5,12 @@ using Dalamud.Plugin.Services;
 
 namespace ShouldISell.Services;
 
+public enum BuyScanLane
+{
+    MarketBoard,
+    Vendor,
+}
+
 /// <summary>
 /// Two-stage Should I Buy? discovery engine. The broad pass uses Universalis' aggregated endpoint
 /// (up to 100 items/request), then only the strongest candidates receive full listing books and
@@ -27,7 +33,8 @@ public sealed class BuyOpportunityScanner : IDisposable
     private readonly SemaphoreSlim scanGate = new(1, 1);
     private readonly object resultGate = new();
     private CancellationTokenSource? scanCts;
-    private List<BuyOpportunity> opportunities = new();
+    private List<BuyOpportunity> marketOpportunities = new();
+    private List<BuyOpportunity> vendorOpportunities = new();
 
     public BuyOpportunityScanner(
         Configuration configuration,
@@ -46,7 +53,7 @@ public sealed class BuyOpportunityScanner : IDisposable
 
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(30);
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "2.0.1"));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "2.1.0"));
     }
 
     public bool IsScanning { get; private set; }
@@ -59,11 +66,29 @@ public sealed class BuyOpportunityScanner : IDisposable
     public int LocalDeepCandidates { get; private set; }
     public int RescueDeepCandidates { get; private set; }
     public DateTimeOffset? LastCompletedUtc { get; private set; }
+    public DateTimeOffset? LastMarketCompletedUtc { get; private set; }
+    public DateTimeOffset? LastVendorCompletedUtc { get; private set; }
+    public BuyScanLane? ActiveLane { get; private set; }
 
     public IReadOnlyList<BuyOpportunity> GetOpportunities()
     {
         lock (resultGate)
-            return opportunities.ToList();
+            return marketOpportunities.Concat(vendorOpportunities)
+                .OrderByDescending(x => x.OpportunityScore)
+                .ThenByDescending(x => x.RiskAdjustedProfit)
+                .ToList();
+    }
+
+    public IReadOnlyList<BuyOpportunity> GetMarketOpportunities()
+    {
+        lock (resultGate)
+            return marketOpportunities.ToList();
+    }
+
+    public IReadOnlyList<BuyOpportunity> GetVendorOpportunities()
+    {
+        lock (resultGate)
+            return vendorOpportunities.ToList();
     }
 
     public void CancelScan()
@@ -72,7 +97,16 @@ public sealed class BuyOpportunityScanner : IDisposable
         Status = "Cancelling scan...";
     }
 
-    public async Task ScanAsync(CancellationToken cancellationToken = default)
+    public Task ScanAsync(CancellationToken cancellationToken = default)
+        => ScanMarketAsync(cancellationToken);
+
+    public Task ScanMarketAsync(CancellationToken cancellationToken = default)
+        => ScanInternalAsync(BuyScanLane.MarketBoard, cancellationToken);
+
+    public Task ScanVendorAsync(CancellationToken cancellationToken = default)
+        => ScanInternalAsync(BuyScanLane.Vendor, cancellationToken);
+
+    private async Task ScanInternalAsync(BuyScanLane lane, CancellationToken cancellationToken = default)
     {
         if (!playerState.IsLoaded || !await scanGate.WaitAsync(0, cancellationToken))
             return;
@@ -84,6 +118,7 @@ public sealed class BuyOpportunityScanner : IDisposable
         try
         {
             IsScanning = true;
+            ActiveLane = lane;
             BroadItemsScanned = 0;
             DeepItemsScanned = 0;
             BroadSignalVariants = 0;
@@ -91,17 +126,26 @@ public sealed class BuyOpportunityScanner : IDisposable
             RescueDeepCandidates = 0;
             inventory.ScanLoadedContainers(forceFlush: true);
 
-            var settings = SnapshotSettings();
+            var baseSettings = SnapshotSettings();
+            var settings = lane == BuyScanLane.Vendor
+                ? baseSettings with
+                {
+                    EnableMarketToMarket = false,
+                    EnableMarketToVendor = false,
+                    EnableVendorToMarket = baseSettings.EnableVendorToMarket,
+                }
+                : baseSettings with { EnableVendorToMarket = false };
             var worldId = playerState.CurrentWorld.RowId;
             var universe = catalog.GetAllMarketableEntries()
                 .Where(x => settings.IncludeEquipment || !x.IsEquipment)
                 .Where(x => !settings.UseCategoryFilter || settings.CategoryIds.Contains(x.UiCategoryId))
+                .Where(x => lane != BuyScanLane.Vendor || x.Item.VendorGilShopPrice is > 0)
                 .ToList();
 
             BroadItemsTotal = universe.Count;
             if (universe.Count == 0)
             {
-                lock (resultGate) opportunities = new List<BuyOpportunity>();
+                ReplaceLaneResults(lane, new List<BuyOpportunity>());
                 Status = "No marketable items match the selected scope.";
                 return;
             }
@@ -115,7 +159,7 @@ public sealed class BuyOpportunityScanner : IDisposable
                 var aggregated = await FetchAggregatedAsync(worldId, batch, token);
                 if (!playerState.IsLoaded || playerState.CurrentWorld.RowId != worldId)
                 {
-                    lock (resultGate) opportunities = new List<BuyOpportunity>();
+                    ReplaceLaneResults(lane, new List<BuyOpportunity>());
                     Status = "World changed during discovery. Results were discarded; run discovery again on your current world.";
                     return;
                 }
@@ -211,6 +255,13 @@ public sealed class BuyOpportunityScanner : IDisposable
             RescueDeepCandidates = selectedIds.Count(id =>
                 !selectedVariants.Any(x => x.Entry.Item.ItemId == id && x.LocalMarketSignal) &&
                 selectedVariants.Any(x => x.Entry.Item.ItemId == id && x.RareRescueSignal));
+            if (lane == BuyScanLane.Vendor)
+            {
+                // Vendor candidates are intentionally their own world-local lane. They do not need
+                // to masquerade as Market -> Market local signals to win deep-analysis slots.
+                LocalDeepCandidates = selectedIds.Count;
+                RescueDeepCandidates = 0;
+            }
 
             DeepItemsTotal = selectedIds.Count;
             Status = $"Detailed Universalis: 0 / {DeepItemsTotal:N0} candidate items...";
@@ -221,7 +272,7 @@ public sealed class BuyOpportunityScanner : IDisposable
                 var deep = await FetchDeepAsync(worldId, batch, token);
                 if (!playerState.IsLoaded || playerState.CurrentWorld.RowId != worldId)
                 {
-                    lock (resultGate) opportunities = new List<BuyOpportunity>();
+                    ReplaceLaneResults(lane, new List<BuyOpportunity>());
                     Status = "World changed during detailed analysis. Results were discarded; run discovery again on your current world.";
                     return;
                 }
@@ -245,11 +296,11 @@ public sealed class BuyOpportunityScanner : IDisposable
                     continue;
 
                 ownedByVariant.TryGetValue((candidate.Entry.Item.ItemId, candidate.IsHq), out var existingQuantity);
-                if (settings.EnableMarketToMarket && !HasRenewableVendorSupply(candidate.Entry.Item, candidate.IsHq))
+                if (lane == BuyScanLane.MarketBoard && settings.EnableMarketToMarket && !HasRenewableVendorSupply(candidate.Entry.Item, candidate.IsHq))
                     TryAddBestMarketFlip(final, worldId, candidate, deep, existingQuantity, settings);
-                if (settings.EnableVendorToMarket && !candidate.IsHq && candidate.Entry.Item.VendorGilShopPrice is > 0)
+                if (lane == BuyScanLane.Vendor && settings.EnableVendorToMarket && !candidate.IsHq && candidate.Entry.Item.VendorGilShopPrice is > 0)
                     TryAddVendorToMarket(final, worldId, candidate, deep, existingQuantity, settings);
-                if (settings.EnableMarketToVendor && candidate.Entry.Item.VendorBuybackPrice > 0)
+                if (lane == BuyScanLane.MarketBoard && settings.EnableMarketToVendor && candidate.Entry.Item.VendorBuybackPrice > 0)
                     TryAddMarketToVendor(final, worldId, candidate, deep, existingQuantity, settings);
             }
 
@@ -263,16 +314,20 @@ public sealed class BuyOpportunityScanner : IDisposable
 
             if (!playerState.IsLoaded || playerState.CurrentWorld.RowId != worldId)
             {
-                lock (resultGate) opportunities = new List<BuyOpportunity>();
+                ReplaceLaneResults(lane, new List<BuyOpportunity>());
                 Status = "World changed before discovery completed. Results were discarded; run discovery again on your current world.";
                 return;
             }
 
-            lock (resultGate)
-                opportunities = final;
+            ReplaceLaneResults(lane, final);
 
             LastCompletedUtc = DateTimeOffset.UtcNow;
-            Status = $"Ready: {final.Count:N0} opportunity package(s) from {universe.Count:N0} items. " +
+            if (lane == BuyScanLane.Vendor)
+                LastVendorCompletedUtc = LastCompletedUtc;
+            else
+                LastMarketCompletedUtc = LastCompletedUtc;
+            var laneLabel = lane == BuyScanLane.Vendor ? "Vendor -> Market" : "Market Board";
+            Status = $"{laneLabel} ready: {final.Count:N0} opportunity package(s) from {universe.Count:N0} scoped items. " +
                      $"Broad signals {BroadSignalVariants:N0}; detailed {DeepItemsTotal:N0} " +
                      $"({LocalDeepCandidates:N0} local + {RescueDeepCandidates:N0} rare rescue).";
         }
@@ -288,7 +343,19 @@ public sealed class BuyOpportunityScanner : IDisposable
         finally
         {
             IsScanning = false;
+            ActiveLane = null;
             scanGate.Release();
+        }
+    }
+
+    private void ReplaceLaneResults(BuyScanLane lane, List<BuyOpportunity> results)
+    {
+        lock (resultGate)
+        {
+            if (lane == BuyScanLane.Vendor)
+                vendorOpportunities = results;
+            else
+                marketOpportunities = results;
         }
     }
 
@@ -297,7 +364,7 @@ public sealed class BuyOpportunityScanner : IDisposable
         BuyOpportunity? match;
         lock (resultGate)
         {
-            match = opportunities
+            match = marketOpportunities
                 .Where(x => x.Item.ItemId == itemId && x.IsHq == isHq)
                 .Where(x => listingId == 0 || x.AcquisitionLots.Any(l => l.ListingId == listingId))
                 .Where(x => DateTimeOffset.UtcNow - x.AnalysedAtUtc <= TimeSpan.FromHours(6))

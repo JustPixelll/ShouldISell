@@ -27,6 +27,7 @@ public sealed partial class SuiteWindow : Window, IDisposable
     private BuySortColumn buySortColumn = BuySortColumn.Rating;
     private bool buySortAscending;
     private string buySearch = string.Empty;
+    private string vendorBuySearch = string.Empty;
     private string buyCategorySearch = string.Empty;
 
     public SuiteWindow(Plugin plugin)
@@ -89,7 +90,19 @@ public sealed partial class SuiteWindow : Window, IDisposable
         var worldId = CurrentBuyWorldId;
         if (worldId == 0)
             return Array.Empty<BuyOpportunity>();
-        return GetModelAdjustedBuyOpportunities(worldId);
+        return GetModelAdjustedBuyOpportunities(worldId)
+            .Where(x => x.Kind != BuyOpportunityKind.VendorToMarket)
+            .ToList();
+    }
+
+    private IReadOnlyList<BuyOpportunity> GetCurrentWorldVendorOpportunities()
+    {
+        var worldId = CurrentBuyWorldId;
+        if (worldId == 0)
+            return Array.Empty<BuyOpportunity>();
+        return GetModelAdjustedBuyOpportunities(worldId)
+            .Where(x => x.Kind == BuyOpportunityKind.VendorToMarket)
+            .ToList();
     }
 
     private static void ItemNameContextMenu(string popupId, string itemName)

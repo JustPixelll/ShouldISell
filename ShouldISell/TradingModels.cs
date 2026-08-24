@@ -18,6 +18,12 @@ public enum BuyOpportunityKind
     MarketToVendor,
 }
 
+public enum PurchaseSourceKind
+{
+    MarketBoard,
+    VendorManual,
+}
+
 public sealed record BuyAcquisitionLot(
     ulong ListingId,
     uint Quantity,
@@ -80,7 +86,8 @@ public sealed record PersonalPurchase(
     uint? PredictedExitUnitPrice,
     double? PredictedLiquidationDays,
     double? PredictedPackageProfit,
-    DateTimeOffset? PredictionObservedAtUtc);
+    DateTimeOffset? PredictionObservedAtUtc,
+    PurchaseSourceKind SourceKind = PurchaseSourceKind.MarketBoard);
 
 public sealed record ClosedTrade(
     uint ItemId,

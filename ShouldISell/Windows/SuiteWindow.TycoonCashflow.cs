@@ -23,6 +23,35 @@ public sealed partial class SuiteWindow
         GilFlowCategory.Other,
     };
 
+    // FontAwesome 5 Free glyphs are included in Dalamud's default UI font. Keep the common
+    // high-frequency categories one click away; the full category popup remains available.
+    private static readonly (GilFlowCategory Category, string Icon, string Label)[] QuickSpendGilCategories =
+    {
+        (GilFlowCategory.MarketBoardPurchase, "\uf07a", "Market Board purchase"),
+        (GilFlowCategory.Vendor, "\uf54e", "Vendor"),
+        (GilFlowCategory.Crafting, "\uf6e3", "Crafting / materials"),
+        (GilFlowCategory.Glamour, "\uf553", "Glamour"),
+        (GilFlowCategory.Housing, "\uf015", "Housing"),
+        (GilFlowCategory.Teleport, "\uf14e", "Teleport"),
+        (GilFlowCategory.Repair, "\uf0ad", "Repair"),
+    };
+
+    private static readonly (GilFlowCategory Category, string Icon, string Label)[] QuickIncomeGilCategories =
+    {
+        (GilFlowCategory.Vendor, "\uf54e", "Vendor"),
+        (GilFlowCategory.Quest, "\uf005", "Quest"),
+        (GilFlowCategory.Duty, "\uf091", "Duty / roulette"),
+        (GilFlowCategory.PlayerTrade, "\uf362", "Player trade"),
+        (GilFlowCategory.RetainerTransfer, "\uf51e", "Retainer transfer / internal"),
+    };
+
+    private string vendorPurchaseSearch = string.Empty;
+    private uint vendorPurchaseItemId;
+    private int vendorPurchaseQuantity = 1;
+    private int vendorPurchaseUnitPrice;
+    private bool vendorPurchaseTrackAsTrade = true;
+    private string vendorPurchaseStatus = string.Empty;
+
     private void DrawTycoonCashflowSummary(TraderSnapshot tradeSnapshot)
     {
         if (!Plugin.PlayerState.IsLoaded || Plugin.PlayerState.ContentId == 0)
@@ -34,7 +63,8 @@ public sealed partial class SuiteWindow
         var sales = plugin.Store.GetPersonalSales(contentId);
         var walletIn = flows.Where(x => x.Amount > 0).Sum(x => (double)x.Amount);
         var walletOut = -flows.Where(x => x.Amount < 0).Sum(x => (double)x.Amount);
-        var mbSpend = allPurchases.Sum(x => (double)x.TotalCost);
+        var mbSpend = allPurchases.Where(x => x.SourceKind == PurchaseSourceKind.MarketBoard).Sum(x => (double)x.TotalCost);
+        var vendorSpend = allPurchases.Where(x => x.SourceKind == PurchaseSourceKind.VendorManual).Sum(x => (double)x.TotalCost);
         var mbSales = sales.Sum(x => (double)x.NetGil);
 
         if (!ImGui.BeginTable("##tycoon-cashflow-headline", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV))
@@ -45,9 +75,10 @@ public sealed partial class SuiteWindow
         MetricCell(2, "Observed wallet out", Gil(walletOut));
         MetricCell(3, "Observed wallet net", Gil(walletIn - walletOut));
         MetricCell(0, "MB purchase spend", Gil(mbSpend));
-        MetricCell(1, "Captured MB sale income", Gil(mbSales));
-        MetricCell(2, "Trade realized P&L", Gil(tradeSnapshot.RealizedProfit));
-        MetricCell(3, "Unclassified wallet events", flows.Count(x => x.Category == GilFlowCategory.Unclassified).ToString("N0"));
+        MetricCell(1, "Manual vendor spend", Gil(vendorSpend));
+        MetricCell(2, "Captured MB sale income", Gil(mbSales));
+        MetricCell(3, "Trade realized P&L", Gil(tradeSnapshot.RealizedProfit));
+        MetricCell(0, "Unclassified wallet events", flows.Count(x => x.Category == GilFlowCategory.Unclassified).ToString("N0"));
         ImGui.EndTable();
 
         if (ImGui.IsItemHovered())
@@ -110,7 +141,7 @@ public sealed partial class SuiteWindow
         ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Delta", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Balance", ImGuiTableColumnFlags.WidthFixed, 105 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Category", ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Category", ImGuiTableColumnFlags.WidthFixed, 260 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Class", ImGuiTableColumnFlags.WidthFixed, 58 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Note", ImGuiTableColumnFlags.WidthStretch);
@@ -136,23 +167,43 @@ public sealed partial class SuiteWindow
 
     private void DrawGilCategoryEditor(GilFlowEntry flow)
     {
-        ImGui.SetNextItemWidth(-1);
-        if (!ImGui.BeginCombo("##gil-category", GilCategoryLabel(flow.Category)))
-            return;
-
-        foreach (var category in EditableGilCategories)
+        var quick = flow.Amount < 0 ? QuickSpendGilCategories : QuickIncomeGilCategories;
+        var first = true;
+        foreach (var entry in quick)
         {
-            if (!ImGui.Selectable(GilCategoryLabel(category), category == flow.Category))
-                continue;
-            plugin.TraderStore.UpdateGilFlowClassification(
-                flow.Id,
-                category,
-                GilCategoryLabel(category),
-                autoClassified: false,
-                note: flow.Note);
+            if (!first)
+                ImGui.SameLine(0, 3 * ImGuiHelpers.GlobalScale);
+            first = false;
+            if (ImGui.SmallButton($"{entry.Icon}##gil-quick-{entry.Category}"))
+                ApplyGilCategory(flow, entry.Category);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(entry.Label + (flow.Category == entry.Category ? " (current)" : string.Empty));
         }
-        ImGui.EndCombo();
+
+        ImGui.SameLine(0, 4 * ImGuiHelpers.GlobalScale);
+        if (ImGui.SmallButton("...##gil-category-more"))
+            ImGui.OpenPopup("##gil-category-popup");
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("All cashflow categories");
+        if (ImGui.BeginPopup("##gil-category-popup"))
+        {
+            foreach (var category in EditableGilCategories)
+            {
+                if (ImGui.Selectable(GilCategoryLabel(category), category == flow.Category))
+                    ApplyGilCategory(flow, category);
+            }
+            ImGui.EndPopup();
+        }
+        ImGui.TextDisabled(GilCategoryLabel(flow.Category));
     }
+
+    private void ApplyGilCategory(GilFlowEntry flow, GilFlowCategory category)
+        => plugin.TraderStore.UpdateGilFlowClassification(
+            flow.Id,
+            category,
+            GilCategoryLabel(category),
+            autoClassified: false,
+            note: flow.Note);
 
     private void DrawTycoonPurchases()
     {
@@ -163,25 +214,28 @@ public sealed partial class SuiteWindow
         }
 
         var contentId = Plugin.PlayerState.ContentId;
+        DrawManualVendorPurchaseEntry(contentId);
+        ImGui.Spacing();
         var purchases = plugin.TraderStore.GetPurchases(contentId);
-        ImGui.TextWrapped("Every confirmed Market Board purchase remains part of your spending history. Use the Trading position toggle to decide whether that purchase lot should participate in FIFO trade P&L/open positions. This is ideal for crafting, glamour, housing or personal-use buys: excluding a lot is reversible and does not erase the real gil spend.");
+        ImGui.TextWrapped("Purchases are now a unified acquisition ledger. Market Board buys are captured automatically; normal-gil vendor buys can be entered manually. Use the Trade/Personal toggle to decide whether a lot participates in FIFO trading P&L without erasing the real acquisition record.");
         ImGui.Spacing();
 
         if (purchases.Count == 0)
         {
-            ImGui.TextDisabled("No captured Market Board purchases yet.");
+            ImGui.TextDisabled("No captured Market Board or manually entered vendor purchases yet.");
             return;
         }
 
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
-        if (!ImGui.BeginTable("##tycoon-purchase-ledger", 7, flags, new Vector2(0, -1)))
+        if (!ImGui.BeginTable("##tycoon-purchase-ledger", 8, flags, new Vector2(0, -1)))
             return;
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableSetupColumn("Bought", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Total cost", ImGuiTableColumnFlags.WidthFixed, 95 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Strategy / source", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Strategy", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Position", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
@@ -196,9 +250,10 @@ public sealed partial class SuiteWindow
             ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted(plugin.Catalog.Get(purchase.ItemId).Name + (purchase.IsHq ? " [HQ]" : string.Empty));
             ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted(purchase.Quantity.ToString("N0"));
             ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted(Gil(purchase.TotalCost));
-            ImGui.TableSetColumnIndex(4); ImGui.TextWrapped(purchase.Strategy);
-            ImGui.TableSetColumnIndex(5); ImGui.TextUnformatted(excluded ? "Personal" : "Trade");
-            ImGui.TableSetColumnIndex(6);
+            ImGui.TableSetColumnIndex(4); ImGui.TextUnformatted(purchase.SourceKind == PurchaseSourceKind.VendorManual ? "Vendor (manual)" : "Market Board");
+            ImGui.TableSetColumnIndex(5); ImGui.TextWrapped(purchase.Strategy);
+            ImGui.TableSetColumnIndex(6); ImGui.TextUnformatted(excluded ? "Personal" : "Trade");
+            ImGui.TableSetColumnIndex(7);
             if (ImGui.SmallButton(excluded ? "Track as trade" : "Mark personal"))
             {
                 plugin.TraderStore.SetPurchaseExcluded(purchase, !excluded);
@@ -212,6 +267,122 @@ public sealed partial class SuiteWindow
         }
 
         ImGui.EndTable();
+    }
+
+
+    private void DrawManualVendorPurchaseEntry(ulong contentId)
+    {
+        if (!ImGui.CollapsingHeader("Record vendor purchase manually##vendor-purchase-entry", ImGuiTreeNodeFlags.DefaultOpen))
+            return;
+
+        ImGui.TextWrapped("FFXIV does not expose a reliable item-level vendor-purchase event to Dalamud. Enter a normal-gil NPC purchase here when you want its real cost basis tracked. Should I? never invents the purchase: you choose the item, quantity and unit cost, then confirm it.");
+        ImGui.TextDisabled("If the exact wallet decrease was captured as an Unclassified event in the last five minutes, Should I? will relabel that existing event as Vendor. If no exact match exists, no synthetic wallet transaction is created.");
+
+        ImGui.SetNextItemWidth(360 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##vendor-purchase-search", "Search normal-gil vendor item...", ref vendorPurchaseSearch, 128);
+        var matches = string.IsNullOrWhiteSpace(vendorPurchaseSearch)
+            ? new List<MarketCatalogEntry>()
+            : plugin.Catalog.GetAllMarketableEntries()
+                .Where(x => x.Item.VendorGilShopPrice is > 0 && x.Item.Name.Contains(vendorPurchaseSearch, StringComparison.CurrentCultureIgnoreCase))
+                .Take(8)
+                .ToList();
+        if (matches.Count > 0 && (vendorPurchaseItemId == 0 || !string.Equals(plugin.Catalog.Get(vendorPurchaseItemId).Name, vendorPurchaseSearch, StringComparison.CurrentCultureIgnoreCase)))
+        {
+            if (ImGui.BeginChild("##vendor-purchase-matches", new Vector2(360 * ImGuiHelpers.GlobalScale, Math.Min(150, matches.Count * 24 + 8) * ImGuiHelpers.GlobalScale), true))
+            {
+                foreach (var match in matches)
+                {
+                    if (!ImGui.Selectable($"{match.Item.Name} — {match.Item.VendorGilShopPrice:N0}g##vendor-pick-{match.Item.ItemId}"))
+                        continue;
+                    vendorPurchaseItemId = match.Item.ItemId;
+                    vendorPurchaseSearch = match.Item.Name;
+                    vendorPurchaseUnitPrice = checked((int)Math.Min(int.MaxValue, match.Item.VendorGilShopPrice!.Value));
+                }
+                ImGui.EndChild();
+            }
+        }
+
+        if (vendorPurchaseItemId == 0)
+        {
+            if (!string.IsNullOrWhiteSpace(vendorPurchaseStatus))
+                ImGui.TextDisabled(vendorPurchaseStatus);
+            return;
+        }
+
+        var item = plugin.Catalog.Get(vendorPurchaseItemId);
+        if (item.VendorGilShopPrice is null)
+        {
+            vendorPurchaseItemId = 0;
+            vendorPurchaseStatus = "That item is no longer recognized as a normal-gil vendor item in current game data.";
+            return;
+        }
+
+        ImGui.TextUnformatted($"Selected: {item.Name} • game-data vendor price {item.VendorGilShopPrice:N0}g/unit");
+        ImGui.SetNextItemWidth(150 * ImGuiHelpers.GlobalScale);
+        if (ImGui.InputInt("Quantity##vendor-purchase", ref vendorPurchaseQuantity, 1, 10))
+            vendorPurchaseQuantity = Math.Clamp(vendorPurchaseQuantity, 1, 999_999);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(160 * ImGuiHelpers.GlobalScale);
+        if (ImGui.InputInt("Unit cost##vendor-purchase", ref vendorPurchaseUnitPrice, 1, 100))
+            vendorPurchaseUnitPrice = Math.Clamp(vendorPurchaseUnitPrice, 1, 999_999_999);
+        ImGui.SameLine();
+        ImGui.Checkbox("Track as trade position##vendor-purchase", ref vendorPurchaseTrackAsTrade);
+
+        var total = (long)Math.Max(1, vendorPurchaseQuantity) * Math.Max(1, vendorPurchaseUnitPrice);
+        ImGui.TextDisabled($"Manual acquisition total: {total:N0}g. Vendor items are recorded as NQ with zero buyer tax.");
+
+        if (ImGui.Button("RECORD VENDOR PURCHASE"))
+        {
+            var prediction = plugin.BuyScanner.GetVendorOpportunities()
+                .Where(x => x.WorldId == Plugin.PlayerState.CurrentWorld.RowId && x.Item.ItemId == vendorPurchaseItemId && !x.IsHq)
+                .OrderByDescending(x => x.OpportunityScore)
+                .FirstOrDefault();
+            var now = DateTimeOffset.UtcNow;
+            var purchase = new PersonalPurchase(
+                contentId,
+                Plugin.PlayerState.CurrentWorld.RowId,
+                vendorPurchaseItemId,
+                false,
+                vendorPurchaseQuantity,
+                checked((uint)vendorPurchaseUnitPrice),
+                0,
+                total,
+                0,
+                now,
+                prediction?.StrategyLabel ?? "Vendor -> Market (manual)",
+                prediction?.OpportunityScore,
+                prediction?.SuggestedExitUnitPrice,
+                prediction?.EstimatedLiquidationDays,
+                prediction?.PotentialProfit,
+                prediction?.AnalysedAtUtc,
+                PurchaseSourceKind.VendorManual);
+
+            if (plugin.TraderStore.AddPurchase(purchase, flush: false))
+            {
+                if (!vendorPurchaseTrackAsTrade)
+                    plugin.TraderStore.SetPurchaseExcluded(purchase, true, flush: false);
+                var linked = plugin.TraderStore.TryClassifyRecentMatchingOutflow(
+                    contentId,
+                    total,
+                    GilFlowCategory.Vendor,
+                    $"Vendor purchase: {item.Name}",
+                    $"Manual vendor acquisition: {vendorPurchaseQuantity:N0} × {vendorPurchaseUnitPrice:N0}g",
+                    flush: false);
+                plugin.TraderStore.Flush();
+                plugin.TraderAnalyzer.GetSnapshot(force: true);
+                vendorPurchaseStatus = linked
+                    ? $"Recorded {vendorPurchaseQuantity:N0} × {item.Name} for {total:N0}g and linked the exact recent wallet outflow."
+                    : $"Recorded {vendorPurchaseQuantity:N0} × {item.Name} for {total:N0}g. No exact recent Unclassified wallet outflow was changed.";
+            }
+            else
+            {
+                vendorPurchaseStatus = "That vendor purchase looks like a duplicate of an entry recorded moments ago; nothing was added.";
+            }
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Adds real vendor cost basis to Tycoon. If marked Trade, later captured sales can close it through the same FIFO accounting used for Market Board buys.");
+        if (!string.IsNullOrWhiteSpace(vendorPurchaseStatus))
+            ImGui.TextWrapped(vendorPurchaseStatus);
     }
 
     private static string GilCategoryLabel(GilFlowCategory category) => category switch
