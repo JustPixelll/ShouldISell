@@ -66,7 +66,7 @@ public sealed class Plugin : IDalamudPlugin
         SaleAnnouncements = new RetainerSaleAnnouncementObserver(ChatGui, PlayerState, Store, Log);
         Scores = new ScoreCalculator();
         Coordinator = new MarketDataCoordinator(PlayerState, Configuration, Store, Catalog, Inventory, Universalis, Scores, Log);
-        DeepMine = new DeepMineBridge(PluginInterface, Store, Log);
+        DeepMine = new DeepMineBridge(PluginInterface, Store, Inventory, PlayerState, Log);
         ListingAttentionOverlay = new RetainerListingAttentionOverlay(GameGui, PlayerState, Coordinator, Log);
         BuyScanner = new BuyOpportunityScanner(Configuration, PlayerState, Catalog, Inventory, Scores, Log);
         ProductionScanner = new ProductionOpportunityScanner(PlayerState, DataManager, Catalog, Inventory, Log);
@@ -134,8 +134,6 @@ public sealed class Plugin : IDalamudPlugin
         Inventory.ScanLoadedContainers();
         ListingHistory.Capture();
 
-        // This is local plugin-to-plugin IPC only. Should I? never issues native Market Board
-        // requests automatically; it merely imports data if the optional Deep Mine plugin exists.
         if (!DeepMine.IsConnected && now >= nextDeepMineSync)
         {
             nextDeepMineSync = now.AddSeconds(30);
