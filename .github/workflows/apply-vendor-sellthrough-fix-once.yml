@@ -1,16 +1,16 @@
-# one-shot trigger
 name: Apply vendor sell-through sizing fix once
 
 on:
-  push:
+  pull_request:
     branches: [ main ]
-    paths: [ .github/workflows/apply-vendor-sellthrough-fix-once.yml ]
+    types: [ opened, synchronize, reopened ]
 
 permissions:
   contents: write
 
 jobs:
   apply:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -185,5 +185,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add ShouldISell/Services/BuyOpportunityScanner.cs ShouldISell/ShouldISell.csproj PUBLISHING.md
+          if git diff --cached --quiet; then
+            echo "Fix already applied."
+            exit 0
+          fi
           git commit -m "Fix vendor opportunity sell-through sizing"
           git push origin HEAD:fix/vendor-sellthrough-cap
