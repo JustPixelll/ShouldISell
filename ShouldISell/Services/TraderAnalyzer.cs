@@ -232,7 +232,15 @@ public sealed class TraderAnalyzer
         var realizedRevenue = closed.Sum(x => x.NetRevenue);
         var realizedCost = closed.Sum(x => x.CostBasis);
         var realizedProfit = realizedRevenue - realizedCost;
+
+        // These are intentionally two different return measures.
+        // - RealizedRoi is return on the cost basis that has actually been SOLD. This is the
+        //   correct trade/strategy ROI and can legitimately be enormous for a very cheap flip.
+        // - RealizedReturnOnTrackedSpend answers the portfolio-style question the Tycoon headline
+        //   visually implies: how much realized profit exists relative to ALL tracked Trade spend,
+        //   including purchase lots that are still open. Never substitute one denominator for the other.
         var realizedRoi = realizedCost > 0 ? realizedProfit / realizedCost : 0;
+        var realizedReturnOnTrackedSpend = capitalInvested > 0 ? realizedProfit / capitalInvested : 0;
         var winRate = closed.Count > 0 ? closed.Count(x => x.Profit > 0) / (double)closed.Count : 0;
         var medianHolding = Median(closed.Select(x => x.HoldingDays).ToList());
         var openCost = openPositions.Sum(x => x.CostBasis);
@@ -267,8 +275,10 @@ public sealed class TraderAnalyzer
             closed.Sum(x => x.Quantity),
             openPositions.Sum(x => x.Quantity),
             capitalInvested,
+            realizedCost,
             realizedRevenue,
             realizedProfit,
+            realizedReturnOnTrackedSpend,
             realizedRoi,
             winRate,
             medianHolding,
@@ -320,7 +330,7 @@ public sealed class TraderAnalyzer
             "No trader data yet",
             description,
             0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
             0, null, null,
             0, null, null,
             Array.Empty<ClosedTrade>(),
