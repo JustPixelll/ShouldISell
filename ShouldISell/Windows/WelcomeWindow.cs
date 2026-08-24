@@ -44,14 +44,6 @@ public sealed class WelcomeWindow : Window
         ImGui.TextWrapped("Should I Sell? → Market Refresh can update exactly the known inventory scope you care about from Universalis. Buy, Craft and Gather also use Universalis when you explicitly start their analysis.");
         ImGui.Spacing();
 
-        ImGui.TextUnformatted("3. Optional: Should I Deep Mine?");
-        ImGui.TextWrapped("Deep Mine is a separate experimental companion for explicitly requested native Market Board deep scans. Should I? works without it. If installed, completed Deep Mine snapshots can be consumed automatically over Dalamud IPC.");
-        ImGui.SetNextItemWidth(-1);
-        ImGui.InputText("##deepmine-url", ref DeepMineRepositoryUrl, 256, ImGuiInputTextFlags.ReadOnly);
-        if (ImGui.Button("Copy Deep Mine repository URL"))
-            ImGui.SetClipboardText(DeepMineRepositoryUrl);
-        ImGui.Spacing();
-
         ImGui.Separator();
         ImGui.TextUnformatted("Inventory integration");
         var tooltip = cfg.ShowItemTooltipInsights;
@@ -84,6 +76,4 @@ public sealed class WelcomeWindow : Window
 
         ImGui.TextDisabled("You can reopen this guide at any time with /shouldi setup.");
     }
-
-    private string DeepMineRepositoryUrl = "https://raw.githubusercontent.com/JustPixelll/ShouldIDeepMine/main/pluginmaster.json";
 }
