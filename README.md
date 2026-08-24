@@ -10,6 +10,8 @@ FFXIV economy decision support for Dalamud. Should I? combines Universalis, game
 
 > **Decision support, not automation.** Should I? never automatically buys, sells, reprices, clicks listings, or queues native Market Board searches.
 
+Market recommendations are estimates based on the evidence available at analysis time; prices, supply and demand can change immediately afterward.
+
 ## Modules
 
 | Module | What it answers |
