@@ -1,0 +1,27 @@
+name: Temporary v2.0.2 sales patch runner
+
+on:
+  push:
+    branches: [ feature/v2.0.2-sales-benchmark-retainer-filter ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'apply v2.0.2 sales benchmark patch') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v2.0.2-sales-benchmark-retainer-filter
+          fetch-depth: 0
+      - name: Apply patch
+        run: python3 .github/v2_0_2_sales_patch.py
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ShouldISell/Windows/MainWindow.cs ShouldISell/Windows/MainWindow.SalesHistory.cs ShouldISell/Windows/MainWindow.SalesBenchmark.cs ShouldISell/Services/MarketDataCoordinator.cs ShouldISell/ShouldISell.csproj RELEASE_NOTES_v2.0.2.md
+          git commit -m "feat: apply v2.0.2 sales benchmark patch"
+          git push origin HEAD:feature/v2.0.2-sales-benchmark-retainer-filter
