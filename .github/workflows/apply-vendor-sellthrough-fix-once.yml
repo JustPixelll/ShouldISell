@@ -1,3 +1,4 @@
+# one-shot trigger
 name: Apply vendor sell-through sizing fix once
 
 on:
