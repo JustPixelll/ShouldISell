@@ -96,8 +96,8 @@ public sealed partial class SuiteWindow
 
         var contentId = Plugin.PlayerState.ContentId;
         var flows = plugin.TraderStore.GetGilFlows(contentId);
-        ImGui.TextWrapped("Every direct change to your character's gil wallet is recorded while Should I? is running. Confirmed Market Board purchases are automatically attributed when the exact cost matches. For quest, duty, vendor, teleport, repair and other changes, the gil delta is exact but the source is not always exposed by FFXIV, so Tycoon leaves it Unclassified until you choose a category instead of guessing.");
-        ImGui.TextDisabled("Retainer Market Board sale revenue is tracked separately by Should I Sell? because the economic sale happens on the retainer before the gil is withdrawn into your player wallet. Mark withdrawals as Retainer transfer/internal if you want them excluded conceptually from earned-income analysis.");
+        ImGui.TextWrapped("Cashflow records direct changes to your character's gil wallet while Should I? is running. The amount and resulting balance are the important evidence. Category analytics are intentionally deferred until Should I? can attribute categories reliably instead of asking you to classify every wallet delta manually.");
+        ImGui.TextDisabled("Market Board purchase records and retainer-sale economics remain tracked separately with item-level evidence in Purchases / Trade Positions / Closed Trades.");
         ImGui.Spacing();
 
         if (flows.Count == 0)
@@ -106,105 +106,31 @@ public sealed partial class SuiteWindow
             return;
         }
 
-        if (ImGui.CollapsingHeader("Cashflow by category##tycoon-cashflow-category", ImGuiTreeNodeFlags.DefaultOpen))
-        {
-            if (ImGui.BeginTable("##tycoon-category-table", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable))
-            {
-                ImGui.TableSetupColumn("Category", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Events", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Income", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Spend", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Net", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
-                ImGui.TableHeadersRow();
-
-                foreach (var group in flows.GroupBy(x => x.Category).OrderByDescending(g => g.Sum(x => Math.Abs(x.Amount))))
-                {
-                    var income = group.Where(x => x.Amount > 0).Sum(x => (double)x.Amount);
-                    var spend = -group.Where(x => x.Amount < 0).Sum(x => (double)x.Amount);
-                    ImGui.TableNextRow();
-                    ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(GilCategoryLabel(group.Key));
-                    ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted(group.Count().ToString("N0"));
-                    ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted(Gil(income));
-                    ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted(Gil(spend));
-                    ImGui.TableSetColumnIndex(4); ImGui.TextUnformatted(Gil(income - spend));
-                }
-                ImGui.EndTable();
-            }
-        }
-
-        ImGui.Spacing();
-        ImGui.TextDisabled("RECENT DIRECT WALLET CHANGES — change a category inline when Tycoon cannot prove the source automatically.");
+        ImGui.TextDisabled("RECENT DIRECT WALLET CHANGES");
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
-        if (!ImGui.BeginTable("##tycoon-cashflow-ledger", 7, flags, new Vector2(0, 330 * ImGuiHelpers.GlobalScale)))
+        if (!ImGui.BeginTable("##tycoon-cashflow-ledger", 5, flags, new Vector2(0, 430 * ImGuiHelpers.GlobalScale)))
             return;
 
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Delta", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Balance", ImGuiTableColumnFlags.WidthFixed, 105 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Category", ImGuiTableColumnFlags.WidthFixed, 260 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("Class", ImGuiTableColumnFlags.WidthFixed, 58 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Source evidence", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Note", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableHeadersRow();
 
         foreach (var flow in flows.Take(1000))
         {
-            ImGui.PushID(flow.Id);
             ImGui.TableNextRow();
             ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(flow.AtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
             ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted($"{flow.Amount:+#,##0;-#,##0;0}g");
             ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted($"{flow.BalanceAfter:N0}g");
-            ImGui.TableSetColumnIndex(3);
-            DrawGilCategoryEditor(flow);
-            ImGui.TableSetColumnIndex(4); ImGui.TextWrapped(flow.Source);
-            ImGui.TableSetColumnIndex(5); ImGui.TextDisabled(flow.AutoClassified ? "Auto" : "User");
-            ImGui.TableSetColumnIndex(6); ImGui.TextWrapped(flow.Note);
-            ImGui.PopID();
+            ImGui.TableSetColumnIndex(3); ImGui.TextWrapped(string.IsNullOrWhiteSpace(flow.Source) ? "Unattributed wallet change" : flow.Source);
+            ImGui.TableSetColumnIndex(4); ImGui.TextWrapped(flow.Note);
         }
 
         ImGui.EndTable();
     }
-
-    private void DrawGilCategoryEditor(GilFlowEntry flow)
-    {
-        var quick = flow.Amount < 0 ? QuickSpendGilCategories : QuickIncomeGilCategories;
-        var first = true;
-        foreach (var entry in quick)
-        {
-            if (!first)
-                ImGui.SameLine(0, 3 * ImGuiHelpers.GlobalScale);
-            first = false;
-            if (ImGuiComponents.IconButton($"{entry.Icon}##gil-quick-{entry.Category}"))
-                ApplyGilCategory(flow, entry.Category);
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(entry.Label + (flow.Category == entry.Category ? " (current)" : string.Empty));
-        }
-
-        ImGui.SameLine(0, 4 * ImGuiHelpers.GlobalScale);
-        if (ImGui.SmallButton("...##gil-category-more"))
-            ImGui.OpenPopup("##gil-category-popup");
-        if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("All cashflow categories");
-        if (ImGui.BeginPopup("##gil-category-popup"))
-        {
-            foreach (var category in EditableGilCategories)
-            {
-                if (ImGui.Selectable(GilCategoryLabel(category), category == flow.Category))
-                    ApplyGilCategory(flow, category);
-            }
-            ImGui.EndPopup();
-        }
-        ImGui.TextDisabled(GilCategoryLabel(flow.Category));
-    }
-
-    private void ApplyGilCategory(GilFlowEntry flow, GilFlowCategory category)
-        => plugin.TraderStore.UpdateGilFlowClassification(
-            flow.Id,
-            category,
-            GilCategoryLabel(category),
-            autoClassified: false,
-            note: flow.Note);
 
     private void DrawTycoonPurchases()
     {

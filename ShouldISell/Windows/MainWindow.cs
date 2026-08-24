@@ -67,6 +67,7 @@ public sealed partial class MainWindow : Window, IDisposable
 
     public override void Draw()
     {
+        DrawInventoryCoverageWarning();
         DrawHeader();
         ImGui.Separator();
 
@@ -85,6 +86,11 @@ public sealed partial class MainWindow : Window, IDisposable
             if (ImGui.BeginTabItem("Sales History"))
             {
                 DrawSalesHistory();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Market Refresh"))
+            {
+                DrawUniversalisRefresh();
                 ImGui.EndTabItem();
             }
             if (ImGui.BeginTabItem("Settings"))
@@ -106,9 +112,6 @@ public sealed partial class MainWindow : Window, IDisposable
         ImGui.TextWrapped("Every known marketable item is rated independently. Stars answer ‘is this an excellent selling situation?’, while the 0–100 opportunity score is deliberately stricter so 100 is reserved for an unusually complete fit across value, price, demand, liquidity and market health. Est. net is the expected payout of ONE recommended listing, not the whole stockpile.");
         ImGui.Spacing();
 
-        if (ImGui.Button("Scan loaded inventories"))
-            plugin.Inventory.ScanLoadedContainers(forceFlush: true);
-        ImGui.SameLine();
         if (!plugin.Coordinator.IsFetching)
         {
             if (ImGui.Button("Update from Universalis"))

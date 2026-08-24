@@ -9,7 +9,7 @@ public sealed partial class SuiteWindow
     private void DrawTycoonModule()
     {
         var snapshot = plugin.TraderAnalyzer.GetSnapshot();
-        ImGui.TextWrapped("Tycoon is now both a gil/capital ledger and a trading laboratory. It records direct player-wallet changes while Should I? is running, keeps high-confidence Market Board purchase/sale economics separate, and still uses FIFO only for purchase lots you consider trading positions. Unknown wallet sources remain explicitly unclassified until you categorize them instead of Tycoon guessing.");
+        ImGui.TextWrapped("Tycoon is both a gil/capital ledger and a trading laboratory. It records direct player-wallet changes while Should I? is running, keeps item-level Market Board purchase/sale economics separate, and uses FIFO only for purchase lots you consider trading positions. Unknown wallet sources stay visibly unattributed; category analytics are deferred until attribution can be reliable.");
         ImGui.Spacing();
 
         DrawTycoonCashflowSummary(snapshot);
@@ -37,8 +37,10 @@ public sealed partial class SuiteWindow
                 DrawClosedTrades(snapshot);
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem("Purchases"))
+            var purchasesFlags = selectTycoonPurchases ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
+            if (ImGui.BeginTabItem("Purchases", purchasesFlags))
             {
+                selectTycoonPurchases = false;
                 DrawTycoonPurchases();
                 ImGui.EndTabItem();
             }

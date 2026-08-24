@@ -138,6 +138,7 @@ public sealed class BuyOpportunityScanner : IDisposable
             var worldId = playerState.CurrentWorld.RowId;
             var universe = catalog.GetAllMarketableEntries()
                 .Where(x => settings.IncludeEquipment || !x.IsEquipment)
+                .Where(x => string.IsNullOrWhiteSpace(settings.NameFilter) || x.Item.Name.Contains(settings.NameFilter, StringComparison.CurrentCultureIgnoreCase))
                 .Where(x => !settings.UseCategoryFilter || settings.CategoryIds.Contains(x.UiCategoryId))
                 .Where(x => lane != BuyScanLane.Vendor || x.Item.VendorGilShopPrice is > 0)
                 .ToList();
@@ -168,8 +169,9 @@ public sealed class BuyOpportunityScanner : IDisposable
                     if (!byId.TryGetValue(row.ItemId, out var entry))
                         continue;
 
-                    AddRoughCandidate(rough, entry, false, row.Nq, settings);
-                    if (entry.Item.CanBeHq)
+                    if (settings.IncludeNq)
+                        AddRoughCandidate(rough, entry, false, row.Nq, settings);
+                    if (settings.IncludeHq && entry.Item.CanBeHq)
                         AddRoughCandidate(rough, entry, true, row.Hq, settings);
                 }
 
@@ -992,19 +994,19 @@ public sealed class BuyOpportunityScanner : IDisposable
 
     private ScanSettings SnapshotSettings()
     {
-        var budget = Math.Clamp(configuration.BuyBudgetGil, 1_000, 999_999_999);
-        var minProfit = Math.Clamp(configuration.BuyMinimumProfitGil, 0, budget);
-        var minRoi = Math.Clamp(configuration.BuyMinimumRoiPercent / 100.0, 0, 10);
-        var maxHolding = Math.Clamp(configuration.BuyMaximumHoldingDays, 0.25f, 365f);
-        var maxPerItem = Math.Clamp(configuration.BuyMaximumInvestmentPercentPerItem, 1, 100);
+        // Discovery is intentionally permissive on capital/risk. Profit, ROI, acquisition cost and
+        // holding time are findings filters in the UI rather than hidden reasons to omit results.
         var deepLimit = Math.Clamp(configuration.BuyDeepCandidateLimit, 20, 500);
         return new ScanSettings(
-            budget,
-            minProfit,
-            minRoi,
-            maxHolding,
-            maxPerItem,
+            999_999_999,
+            0,
+            0,
+            3650,
+            100,
             deepLimit,
+            configuration.BuyDiscoveryNameFilter ?? string.Empty,
+            configuration.BuyDiscoveryIncludeNq,
+            configuration.BuyDiscoveryIncludeHq,
             configuration.BuyIncludeEquipment,
             configuration.BuyUseCategoryFilter,
             configuration.BuyIncludedCategoryIds.ToHashSet(),
@@ -1257,6 +1259,9 @@ public sealed class BuyOpportunityScanner : IDisposable
         double MaximumHoldingDays,
         int MaxInvestmentPercentPerItem,
         int DeepCandidateLimit,
+        string NameFilter,
+        bool IncludeNq,
+        bool IncludeHq,
         bool IncludeEquipment,
         bool UseCategoryFilter,
         HashSet<uint> CategoryIds,
