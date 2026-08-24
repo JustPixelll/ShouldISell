@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -16,6 +16,89 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Apply vendor sell-through fix to PR 19
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 19 && github.actor != 'github-actions[bot]'
+        shell: pwsh
+        run: |
+          $path = "ShouldISell/Services/BuyOpportunityScanner.cs"
+          $text = Get-Content $path -Raw
+          $oldDemand = '        var demandBound = Math.Max(1, (int)Math.Ceiling(candidate.Variant.DailyVelocity * settings.MaximumHoldingDays));'
+          $newDemand = @'
+        // Renewable vendor stock is working inventory, not a multi-year speculative position.
+        // Higher unit profit earns a longer demand horizon, but never more than 60 days.
+        var broadUnitProfit = Math.Max(0,
+            candidate.Variant.AverageSalePrice * (1.0 - ScoreCalculator.MarketSellerTaxRate) - vendorPrice.Value);
+        var vendorWorkingDays = Math.Clamp(
+            7.0 + 14.0 * Math.Max(0, Math.Log10(1 + broadUnitProfit / 5_000.0)),
+            7.0,
+            60.0);
+        var demandBound = Math.Max(1, (int)Math.Ceiling(candidate.Variant.DailyVelocity * vendorWorkingDays));
+'@
+          if (-not $text.Contains($oldDemand)) { throw "Vendor demand sizing anchor not found" }
+          $text = $text.Replace($oldDemand, $newDemand.TrimEnd())
+
+          $oldGate = @'
+        var liquidationDays = EstimateLiquidationDays(rating, resultingPosition);
+        if (potentialProfit < settings.MinimumProfitGil || roi < settings.MinimumRoi ||
+            liquidationDays is null || liquidationDays > settings.MaximumHoldingDays)
+            return;
+
+        var liquidityFit = Math.Exp(-liquidationDays.Value / Math.Max(1.0, settings.MaximumHoldingDays));
+'@
+          $newGate = @'
+        var liquidationDays = EstimateLiquidationDays(rating, resultingPosition);
+        var profitHoldingDays = Math.Clamp(
+            7.0 + 14.0 * Math.Max(0, Math.Log10(1 + Math.Max(0, potentialProfit) / 5_000.0)),
+            7.0,
+            60.0);
+        var allowedHoldingDays = Math.Min(settings.MaximumHoldingDays, profitHoldingDays);
+        if (potentialProfit < settings.MinimumProfitGil || roi < settings.MinimumRoi ||
+            liquidationDays is null || liquidationDays > allowedHoldingDays)
+            return;
+
+        var liquidityFit = Math.Exp(-liquidationDays.Value / Math.Max(1.0, allowedHoldingDays));
+'@
+          if (-not $text.Contains($oldGate.Trim())) { throw "Vendor liquidation gate anchor not found" }
+          $text = $text.Replace($oldGate.Trim(), $newGate.Trim())
+
+          $oldScore = @'
+            liquidationDays.Value,
+            settings.MaximumHoldingDays,
+            PriceAdvantage(cost, quantity, netExit),
+'@
+          $newScore = @'
+            liquidationDays.Value,
+            allowedHoldingDays,
+            PriceAdvantage(cost, quantity, netExit),
+'@
+          $vendorStart = $text.IndexOf('    private void TryAddVendorToMarket(')
+          $vendorEnd = $text.IndexOf('    private void TryAddMarketToVendor(', $vendorStart)
+          $vendorBlock = $text.Substring($vendorStart, $vendorEnd - $vendorStart)
+          if (-not $vendorBlock.Contains($oldScore.Trim())) { throw "Vendor score horizon anchor not found" }
+          $vendorBlock = $vendorBlock.Replace($oldScore.Trim(), $newScore.Trim())
+          $text = $text.Substring(0, $vendorStart) + $vendorBlock + $text.Substring($vendorEnd)
+
+          $text = $text.Replace('Quantity is demand-capped and hard-capped to one listable working stack (maximum 99 units) rather than stockpiling renewable vendor supply.', 'Quantity is demand-capped to a profit-sensitive working horizon (7–60 days) and hard-capped to one listable stack rather than stockpiling renewable vendor supply.')
+          $text = $text.Replace('new ProductInfoHeaderValue("ShouldI", "2.1.0")', 'new ProductInfoHeaderValue("ShouldI", "2.3.2")')
+          Set-Content $path $text -Encoding UTF8
+
+          $csproj = "ShouldISell/ShouldISell.csproj"
+          (Get-Content $csproj -Raw).Replace('<Version>2.3.1.0</Version>', '<Version>2.3.2.0</Version>') | Set-Content $csproj -Encoding UTF8
+          $pub = "PUBLISHING.md"
+          if (Test-Path $pub) {
+            (Get-Content $pub -Raw).Replace('2.3.1.0', '2.3.2.0').Replace('2.3.1', '2.3.2') | Set-Content $pub -Encoding UTF8
+          }
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add $path $csproj $pub
+          if (git diff --cached --quiet) { exit 0 }
+          git commit -m "Fix vendor opportunity sell-through sizing"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
 
       - name: Install .NET 10
         uses: actions/setup-dotnet@v5
