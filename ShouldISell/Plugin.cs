@@ -51,9 +51,11 @@ public sealed class Plugin : IDalamudPlugin
     public ListingHistoryTracker ListingHistory { get; }
     public TycoonInsightService TycoonInsights { get; }
     public ItemUiIntegration ItemUi { get; }
+    public ItemTooltipAugmenter TooltipAugmenter { get; }
 
     public readonly WindowSystem WindowSystem = new("ShouldI");
     private readonly SuiteWindow suiteWindow;
+    private readonly WelcomeWindow welcomeWindow;
 
     public Plugin()
     {
@@ -81,12 +83,15 @@ public sealed class Plugin : IDalamudPlugin
         TycoonInsights = new TycoonInsightService(PlayerState, Store, Catalog, ListingHistory);
 
         suiteWindow = new SuiteWindow(this);
-        ItemUi = new ItemUiIntegration(this, GameGui, ContextMenu, suiteWindow);
+        welcomeWindow = new WelcomeWindow(this, () => suiteWindow.IsOpen = true);
+        ItemUi = new ItemUiIntegration(this, ContextMenu, suiteWindow);
+        TooltipAugmenter = new ItemTooltipAugmenter(this, AddonLifecycle, GameGui, GameInterop, Log);
         WindowSystem.AddWindow(suiteWindow);
+        WindowSystem.AddWindow(welcomeWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open Should I?. /shouldi sell, /shouldi buy, /shouldi craft, /shouldi gather, /shouldi opportunities, /shouldi tycoon, /shouldi fetch, /shouldi stop",
+            HelpMessage = "Open Should I?. Modules: sell, buy, craft, gather, opportunities, tycoon. Other: setup, fetch, stop.",
         });
         CommandManager.AddHandler(LegacySellCommand, new CommandInfo(OnLegacySellCommand)
         {
@@ -95,17 +100,19 @@ public sealed class Plugin : IDalamudPlugin
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         PluginInterface.UiBuilder.Draw += ListingAttentionOverlay.Draw;
-        PluginInterface.UiBuilder.Draw += ItemUi.Draw;
         PluginInterface.UiBuilder.OpenMainUi += OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi += OpenMainUi;
 
         Framework.Update += OnFrameworkUpdate;
+
+        if (!Configuration.FirstRunCompleted)
+            welcomeWindow.IsOpen = true;
     }
 
     public void Dispose()
     {
         Framework.Update -= OnFrameworkUpdate;
-        PluginInterface.UiBuilder.Draw -= ItemUi.Draw;
+        TooltipAugmenter.Dispose();
         ItemUi.Dispose();
         PurchaseObserver.Dispose();
         ProductionScanner.Dispose();
@@ -174,14 +181,24 @@ public sealed class Plugin : IDalamudPlugin
             case "opportunity":
             case "do": suiteWindow.OpenModule(ShouldIModule.Opportunities); break;
             case "tycoon": suiteWindow.OpenModule(ShouldIModule.Tycoon); break;
+            case "setup":
+            case "welcome":
+                welcomeWindow.IsOpen = true;
+                break;
             case "fetch": _ = Coordinator.RefreshOwnedFromUniversalisAsync(force: true); break;
             case "stop":
                 BuyScanner.CancelScan();
                 ProductionScanner.CancelScan();
                 break;
-            default: suiteWindow.Toggle(); break;
+            default: OpenMainUi(); break;
         }
     }
 
-    private void OpenMainUi() => suiteWindow.IsOpen = true;
+    private void OpenMainUi()
+    {
+        if (!Configuration.FirstRunCompleted)
+            welcomeWindow.IsOpen = true;
+        else
+            suiteWindow.IsOpen = true;
+    }
 }
