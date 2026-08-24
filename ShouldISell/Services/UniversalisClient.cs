@@ -16,7 +16,7 @@ public sealed class UniversalisClient : IDisposable
         this.log = log;
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(20);
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldISell", "0.4.0"));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldISell", "2.3.3"));
     }
 
     public void Dispose() => http.Dispose();
@@ -40,11 +40,12 @@ public sealed class UniversalisClient : IDisposable
         foreach (var batch in Batch(itemIds))
         {
             var ids = string.Join(',', batch);
-            // 30 days is enough for the first rating model, while 1,800 max entries keeps very active
-            // commodity items useful without requesting huge payloads.
-            var entriesWithin = 90 * 24 * 60 * 60;
+            // Ask for up to 1,800 sales from the last 90 days. Universalis uses seconds for
+            // entriesWithin but milliseconds for statsWithin, so keep the units explicit.
+            var entriesWithinSeconds = 90 * 24 * 60 * 60;
+            var statsWithinMilliseconds = entriesWithinSeconds * 1000L;
             using var response = await http.GetAsync(
-                $"api/v2/history/{worldId}/{ids}?entries=1800&entriesWithin={entriesWithin}&statsWithin={entriesWithin}",
+                $"api/v2/history/{worldId}/{ids}?entriesToReturn=1800&entriesWithin={entriesWithinSeconds}&statsWithin={statsWithinMilliseconds}",
                 cancellationToken);
             response.EnsureSuccessStatusCode();
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
