@@ -1,0 +1,6 @@
+ShouldISell/Windows/SuiteWindow.BuyLive.cs:11:        ImGui.TextDisabled("Read-only in Should I?. Native queued scans live in the separate experimental Should I Deep Mine? plugin.");
+ShouldISell/Windows/SuiteWindow.BuyLive.cs:26:        ImGui.TextDisabled(plugin.DeepMine.IsConnected
+ShouldISell/Windows/SuiteWindow.BuyLive.cs:27:            ? $"Deep Mine link: {plugin.DeepMine.Status}"
+ShouldISell/Windows/SuiteWindow.BuyLive.cs:28:            : "Deep Mine link: not connected. Normal Market Board browsing can still refresh passive live snapshots.");
+ShouldISell/Windows/SuiteWindow.BuyLive.cs:43:            ImGui.TextDisabled("That live snapshot predates this recommendation. Refresh it through normal Market Board use or Should I Deep Mine? before relying on it for this trade.");
+ShouldISell/Windows/MainWindow.cs:744:        ImGui.TextDisabled("Live market snapshots update passively from normal Market Board use or Should I Deep Mine?.");
