@@ -8,18 +8,24 @@ namespace ShouldISell.Services;
 
 /// <summary>
 /// Passive bridge to the optional experimental Should I Deep Mine? plugin.
-/// Should I? never asks FFXIV for market data through this service: it only accepts
-/// snapshots that Deep Mine has already collected and published through Dalamud IPC.
+/// Should I? never asks FFXIV for market data through this service. It only imports snapshots
+/// Deep Mine publishes and exposes local item-ID scopes that Deep Mine may choose to scan.
 /// </summary>
 public sealed class DeepMineBridge : IDisposable
 {
     public const string SnapshotUpdatedChannel = "ShouldIDeepMine.SnapshotUpdated.v1";
     public const string GetSnapshotsChannel = "ShouldIDeepMine.GetSnapshots.v1";
+    public const string GetOwnedItemIdsChannel = "ShouldI.GetOwnedMarketableItemIds.v1";
+    public const string GetListingItemIdsChannel = "ShouldI.GetCurrentListingItemIds.v1";
 
     private readonly LocalStore store;
+    private readonly InventoryScanner inventory;
+    private readonly IPlayerState playerState;
     private readonly IPluginLog log;
     private readonly ICallGateSubscriber<string, object> snapshotSubscriber;
     private readonly ICallGateSubscriber<string> snapshotsSubscriber;
+    private readonly ICallGateProvider<string> ownedIdsProvider;
+    private readonly ICallGateProvider<string> listingIdsProvider;
     private readonly Action<string> snapshotHandler;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -27,14 +33,27 @@ public sealed class DeepMineBridge : IDisposable
         PropertyNameCaseInsensitive = true,
     };
 
-    public DeepMineBridge(IDalamudPluginInterface pluginInterface, LocalStore store, IPluginLog log)
+    public DeepMineBridge(
+        IDalamudPluginInterface pluginInterface,
+        LocalStore store,
+        InventoryScanner inventory,
+        IPlayerState playerState,
+        IPluginLog log)
     {
         this.store = store;
+        this.inventory = inventory;
+        this.playerState = playerState;
         this.log = log;
+
         snapshotSubscriber = pluginInterface.GetIpcSubscriber<string, object>(SnapshotUpdatedChannel);
         snapshotsSubscriber = pluginInterface.GetIpcSubscriber<string>(GetSnapshotsChannel);
+        ownedIdsProvider = pluginInterface.GetIpcProvider<string>(GetOwnedItemIdsChannel);
+        listingIdsProvider = pluginInterface.GetIpcProvider<string>(GetListingItemIdsChannel);
+
         snapshotHandler = ImportSnapshotJson;
         snapshotSubscriber.Subscribe(snapshotHandler);
+        ownedIdsProvider.RegisterFunc(GetOwnedItemIdsJson);
+        listingIdsProvider.RegisterFunc(GetListingItemIdsJson);
         TrySynchronizeCachedSnapshots();
     }
 
@@ -46,6 +65,8 @@ public sealed class DeepMineBridge : IDisposable
     public void Dispose()
     {
         snapshotSubscriber.Unsubscribe(snapshotHandler);
+        ownedIdsProvider.UnregisterFunc();
+        listingIdsProvider.UnregisterFunc();
     }
 
     public void TrySynchronizeCachedSnapshots()
@@ -81,6 +102,38 @@ public sealed class DeepMineBridge : IDisposable
         catch (Exception ex)
         {
             log.Debug(ex, "Could not synchronize cached Should I Deep Mine? snapshots.");
+        }
+    }
+
+    private string GetOwnedItemIdsJson()
+    {
+        try
+        {
+            return JsonSerializer.Serialize(inventory.GetUniqueMarketableItemIds());
+        }
+        catch (Exception ex)
+        {
+            log.Debug(ex, "Could not expose owned item IDs to Should I Deep Mine?.");
+            return "[]";
+        }
+    }
+
+    private string GetListingItemIdsJson()
+    {
+        if (!playerState.IsLoaded || playerState.ContentId == 0)
+            return "[]";
+        try
+        {
+            return JsonSerializer.Serialize(store.GetOwnListings(playerState.ContentId)
+                .Select(x => x.ItemId)
+                .Distinct()
+                .Order()
+                .ToList());
+        }
+        catch (Exception ex)
+        {
+            log.Debug(ex, "Could not expose listing item IDs to Should I Deep Mine?.");
+            return "[]";
         }
     }
 
