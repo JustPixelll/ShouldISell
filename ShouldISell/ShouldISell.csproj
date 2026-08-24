@@ -1,19 +1,18 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>2.1.0.0</Version>
+    <Version>2.2.0.0</Version>
     <Author>JustPixelll</Author>
     <Name>Should I?</Name>
-    <Punchline>Know what to sell, what to buy, and where your gil goes.</Punchline>
-    <Description>FFXIV economy intelligence for Dalamud: sell optimization, executable Market Board buy discovery, native live verification, full gil cashflow tracking, FIFO trading P&amp;L, and personal sales/listing analytics.</Description>
+    <Punchline>Know what to buy, craft, gather, sell, and what to do next.</Punchline>
+    <Description>FFXIV economy intelligence for Dalamud: sell optimization, Market Board buy discovery, recursive craft economics, gathering opportunity estimates, unified action ranking, gil cashflow tracking, FIFO trading P&amp;L, and personal sales/listing analytics.</Description>
     <PackageProjectUrl>https://github.com/JustPixelll/ShouldISell</PackageProjectUrl>
     <RepoUrl>https://github.com/JustPixelll/ShouldISell</RepoUrl>
     <IconUrl>https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/icon.png</IconUrl>
     <ImageUrls>https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/overview.png;https://raw.githubusercontent.com/JustPixelll/ShouldISell/main/images/details.png</ImageUrls>
-    <Tags>market;market board;retainer;sales;trading;arbitrage;profit;portfolio;universalis</Tags>
+    <Tags>market;market board;retainer;sales;trading;arbitrage;profit;portfolio;crafting;gathering;universalis</Tags>
     <CategoryTags>utility</CategoryTags>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 </Project>
-
