@@ -1,5 +1,6 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility;
 
 namespace ShouldISell.Windows;
@@ -23,8 +24,8 @@ public sealed partial class SuiteWindow
         GilFlowCategory.Other,
     };
 
-    // FontAwesome 5 Free glyphs are included in Dalamud's default UI font. Keep the common
-    // high-frequency categories one click away; the full category popup remains available.
+    // Render these glyphs through ImGuiComponents.IconButton, which explicitly pushes Dalamud's
+    // icon font. Keep common high-frequency categories one click away; the full popup remains.
     private static readonly (GilFlowCategory Category, string Icon, string Label)[] QuickSpendGilCategories =
     {
         (GilFlowCategory.MarketBoardPurchase, "\uf07a", "Market Board purchase"),
@@ -174,7 +175,7 @@ public sealed partial class SuiteWindow
             if (!first)
                 ImGui.SameLine(0, 3 * ImGuiHelpers.GlobalScale);
             first = false;
-            if (ImGui.SmallButton($"{entry.Icon}##gil-quick-{entry.Category}"))
+            if (ImGuiComponents.IconButton($"{entry.Icon}##gil-quick-{entry.Category}"))
                 ApplyGilCategory(flow, entry.Category);
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip(entry.Label + (flow.Category == entry.Category ? " (current)" : string.Empty));
@@ -262,7 +263,7 @@ public sealed partial class SuiteWindow
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip(excluded
                     ? "Put this purchase lot back into FIFO trading positions/P&L."
-                    : "Exclude this purchase lot from trading positions/P&L while keeping its real Market Board spending in the cashflow ledger.");
+                    : "Exclude this purchase lot from trading positions/P&L while keeping the real acquisition in your purchase/cashflow history.");
             ImGui.PopID();
         }
 
@@ -296,7 +297,7 @@ public sealed partial class SuiteWindow
                         continue;
                     vendorPurchaseItemId = match.Item.ItemId;
                     vendorPurchaseSearch = match.Item.Name;
-                    vendorPurchaseUnitPrice = checked((int)Math.Min(int.MaxValue, match.Item.VendorGilShopPrice!.Value));
+                    vendorPurchaseUnitPrice = checked((int)Math.Min((uint)int.MaxValue, match.Item.VendorGilShopPrice!.Value));
                 }
                 ImGui.EndChild();
             }
@@ -317,7 +318,7 @@ public sealed partial class SuiteWindow
             return;
         }
 
-        ImGui.TextUnformatted($"Selected: {item.Name} • game-data vendor price {item.VendorGilShopPrice:N0}g/unit");
+        ImGui.TextUnformatted($"Selected: {item.Name} • game-data vendor price {item.VendorGilShopPrice.Value:N0}g/unit");
         ImGui.SetNextItemWidth(150 * ImGuiHelpers.GlobalScale);
         if (ImGui.InputInt("Quantity##vendor-purchase", ref vendorPurchaseQuantity, 1, 10))
             vendorPurchaseQuantity = Math.Clamp(vendorPurchaseQuantity, 1, 999_999);

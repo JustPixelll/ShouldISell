@@ -124,11 +124,29 @@ public sealed class GilLedgerTracker
             return (GilFlowCategory.Unclassified, "Direct gil income", false,
                 "The wallet increase is exact, but FFXIV does not encode quest/duty/vendor/etc. source identity in the balance itself. Categorize it here when useful.");
 
-        var purchases = store.GetPurchases(contentId)
+        var recentPurchases = store.GetPurchases(contentId)
             .Where(x => x.PurchasedAtUtc >= fromUtc.AddSeconds(-3) && x.PurchasedAtUtc <= toUtc.AddSeconds(6))
             .OrderBy(x => x.PurchasedAtUtc)
             .ToList();
         var spending = -delta;
+
+        // A manually recorded vendor lot is explicit user attribution. If its exact cost matches
+        // this wallet decrease, classify it as Vendor rather than allowing the generic purchase
+        // matcher to call it a Market Board purchase.
+        var exactVendor = recentPurchases.FirstOrDefault(x =>
+            x.SourceKind == PurchaseSourceKind.VendorManual && x.TotalCost == spending);
+        if (exactVendor is not null)
+        {
+            return (
+                GilFlowCategory.Vendor,
+                $"Vendor purchase: {exactVendor.Strategy}",
+                false,
+                $"Matched user-entered vendor cost basis: {exactVendor.Quantity:N0} unit(s), {exactVendor.TotalCost:N0}g total.");
+        }
+
+        var purchases = recentPurchases
+            .Where(x => x.SourceKind == PurchaseSourceKind.MarketBoard)
+            .ToList();
         var exactSingle = purchases.FirstOrDefault(x => x.TotalCost == spending);
         if (exactSingle is not null)
         {
@@ -168,8 +186,24 @@ public sealed class GilLedgerTracker
 
         foreach (var flow in unknown)
         {
+            var exactVendor = purchases
+                .Where(x => x.SourceKind == PurchaseSourceKind.VendorManual && x.TotalCost == -flow.Amount)
+                .OrderBy(x => Math.Abs((x.PurchasedAtUtc - flow.AtUtc).TotalSeconds))
+                .FirstOrDefault(x => Math.Abs((x.PurchasedAtUtc - flow.AtUtc).TotalSeconds) <= 10);
+            if (exactVendor is not null)
+            {
+                store.UpdateGilFlowClassification(
+                    flow.Id,
+                    GilFlowCategory.Vendor,
+                    $"Vendor purchase: {exactVendor.Strategy}",
+                    autoClassified: false,
+                    note: $"Reconciled to user-entered vendor purchase: {exactVendor.Quantity:N0} unit(s), {exactVendor.TotalCost:N0}g total.",
+                    flush: false);
+                continue;
+            }
+
             var exact = purchases
-                .Where(x => x.TotalCost == -flow.Amount)
+                .Where(x => x.SourceKind == PurchaseSourceKind.MarketBoard && x.TotalCost == -flow.Amount)
                 .OrderBy(x => Math.Abs((x.PurchasedAtUtc - flow.AtUtc).TotalSeconds))
                 .FirstOrDefault(x => Math.Abs((x.PurchasedAtUtc - flow.AtUtc).TotalSeconds) <= 10);
             if (exact is null)
