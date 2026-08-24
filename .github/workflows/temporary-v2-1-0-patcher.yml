@@ -1,0 +1,30 @@
+name: Temporary v2.1.0 economic workflows patcher
+
+on:
+  push:
+    branches: [ feature/v2.1.0-economic-workflows ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feature/v2.1.0-economic-workflows
+          fetch-depth: 0
+      - name: Apply patch once
+        shell: bash
+        run: |
+          if grep -q '<Version>2.1.0.0</Version>' ShouldISell/ShouldISell.csproj; then
+            echo 'Patch already applied.'
+            exit 0
+          fi
+          python .github/v2_1_0_patch.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ShouldISell
+          git commit -m 'feat: separate buy lanes and add vendor acquisition tracking'
+          git push origin HEAD:feature/v2.1.0-economic-workflows
