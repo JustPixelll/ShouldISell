@@ -1,4 +1,3 @@
-using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 
@@ -41,12 +40,15 @@ public sealed partial class SuiteWindow
     private void DrawBuyScreenerAndDeepScan()
     {
         ImGui.Spacing();
-        if (ImGui.CollapsingHeader("Opportunity filters & native deep scan", ImGuiTreeNodeFlags.DefaultOpen))
-        {
-            DrawBuyFilterBar();
-            ImGui.Spacing();
-            DrawBuyNativeDeepScanControls();
-        }
+        if (!ImGui.CollapsingHeader("Opportunity filters & live-data status", ImGuiTreeNodeFlags.DefaultOpen))
+            return;
+
+        DrawBuyFilterBar();
+        ImGui.Spacing();
+        ImGui.TextDisabled(plugin.DeepMine.IsConnected
+            ? $"Should I Deep Mine? connected — {plugin.DeepMine.Status}"
+            : "Should I Deep Mine? is optional and not currently connected. Should I? itself does not run native queued deep scans.");
+        Tooltip("Should I? consumes passive in-game Market Board observations and optional snapshots published by the separate Should I Deep Mine? plugin. Deep-scan controls intentionally live only in that experimental plugin.");
     }
 
     private void DrawBuyFilterBar()
@@ -56,7 +58,7 @@ public sealed partial class SuiteWindow
         ImGui.SetNextItemWidth(300 * ImGuiHelpers.GlobalScale);
         if (ImGui.InputTextWithHint("##buy-result-search", "Filter item name...", ref buySearch, 128))
             changed = true;
-        Tooltip("Filters the current-world Should I Buy? opportunities by item name. The same filter also applies to the budget portfolio and native Deep Scan candidate set.");
+        Tooltip("Filters the current-world Should I Buy? opportunities by item name. The same filter also applies to the budget portfolio.");
 
         ImGui.SameLine();
         changed |= DrawStrategyFilterCombo();
@@ -88,7 +90,7 @@ public sealed partial class SuiteWindow
             buyPortfolioPlan = null;
 
         var visible = GetFilteredBuyOpportunities();
-        ImGui.TextDisabled($"{visible.Count:N0} current-world opportunity package(s) match the screener. Filters feed the results table, budget portfolio and native Deep Scan.");
+        ImGui.TextDisabled($"{visible.Count:N0} current-world opportunity package(s) match the screener.");
     }
 
     private bool DrawStrategyFilterCombo()
@@ -218,58 +220,8 @@ public sealed partial class SuiteWindow
             }
             ImGui.EndCombo();
         }
-        Tooltip("Filter by native FFXIV verification state. Verified means every recommended acquisition listing still matched exactly; Changed means at least one no longer did; Refreshed is used when only the exit side needed a live board refresh.");
+        Tooltip("Filter by fresh native FFXIV snapshot state. Snapshots can come from normal player Market Board use or from the optional Should I Deep Mine? plugin. Should I? itself does not generate queued native requests.");
         return changed;
-    }
-
-    private void DrawBuyNativeDeepScanControls()
-    {
-        var c = plugin.Configuration;
-        var limit = c.BuyNativeDeepScanLimit;
-        var candidates = GetBuyDeepScanCandidates(limit);
-        var refresh = plugin.RefreshEngine;
-        var retainerMarketReady = plugin.SellScanContext.IsRetainerMarketUiVisible();
-        var busy = refresh.IsRunning || plugin.BuyScanner.IsScanning;
-        var canStart = retainerMarketReady && !busy && candidates.Count > 0;
-
-        if (!canStart)
-            ImGui.BeginDisabled();
-        if (ImGui.Button($"DEEP SCAN TOP {Math.Min(limit, candidates.Count):N0}##buy-native-deep"))
-        {
-            refresh.StartForItems(
-                candidates.Select(x => x.Item.ItemId),
-                $"Should I Buy deep scan of top {candidates.Count:N0} Universalis hit(s)");
-        }
-        if (!canStart)
-            ImGui.EndDisabled();
-        Tooltip("Native FFXIV deep scan: requests the top currently filtered Universalis-ranked unique items one-by-one through ItemSearch. It does not repeat the broad Universalis discovery pass and never buys anything.");
-
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(190 * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderInt("##buy-native-deep-limit", ref limit, 1, 100, "%d items"))
-        {
-            c.BuyNativeDeepScanLimit = Math.Clamp(limit, 1, 100);
-            c.Save();
-        }
-        Tooltip("How many top unique filtered Universalis hits to verify through FFXIV itself. Range: 1–100.");
-
-        ImGui.SameLine();
-        if (retainerMarketReady)
-            ImGui.TextDisabled($"Retainer market ready on {CurrentBuyWorldName}.");
-        else
-            ImGui.TextDisabled("Open a retainer's market/sell interface to enable Deep Scan.");
-
-        if (refresh.IsRunning)
-        {
-            var progress = refresh.InitialCount > 0
-                ? Math.Clamp((refresh.CompletedCount + refresh.FailedCount) / (float)refresh.InitialCount, 0f, 1f)
-                : 0f;
-            ImGui.ProgressBar(progress, new Vector2(-1, 0), $"Native scan {refresh.CompletedCount + refresh.FailedCount:N0}/{refresh.InitialCount:N0} — {refresh.Status}");
-        }
-        else
-        {
-            ImGui.TextDisabled($"Deep Scan candidates: {candidates.Count:N0} unique item(s), ranked by Universalis opportunity score after the active filters. Duplicate strategies/HQ rows for the same item consume only one native request.");
-        }
     }
 
     private IReadOnlyList<BuyOpportunity> GetFilteredBuyOpportunities()
@@ -302,16 +254,6 @@ public sealed partial class SuiteWindow
 
         return rows.ToList();
     }
-
-    private IReadOnlyList<BuyOpportunity> GetBuyDeepScanCandidates(int limit)
-        => GetFilteredBuyOpportunities()
-            .OrderByDescending(x => x.OpportunityScore)
-            .ThenByDescending(x => x.RiskAdjustedProfit)
-            .ThenByDescending(x => x.PotentialProfit)
-            .GroupBy(x => x.Item.ItemId)
-            .Select(g => g.First())
-            .Take(Math.Clamp(limit, 1, 100))
-            .ToList();
 
     private BuyLiveState GetBuyLiveState(BuyOpportunity opportunity)
     {
