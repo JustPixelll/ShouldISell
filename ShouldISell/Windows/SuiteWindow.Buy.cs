@@ -13,550 +13,535 @@ public enum BuySortColumn
     BuyQuantity,
     Cost,
     ExitPrice,
-    StackSize,
     PotentialProfit,
-    RiskAdjustedProfit,
     Roi,
     Liquidation,
+    Confidence,
+    Tracking,
+}
+
+public enum BuyTrackingFilter
+{
+    All,
+    NotBought,
+    Bought,
 }
 
 public sealed partial class SuiteWindow
 {
+    private sealed class BuyLaneUiState
+    {
+        public string DiscoverySearch = string.Empty;
+        public string CategorySearch = string.Empty;
+        public string FindingsSearch = string.Empty;
+        public bool IncludeNq = true;
+        public bool IncludeHq = true;
+        public bool IncludeEquipment;
+        public bool UseCategoryFilter;
+        public readonly HashSet<uint> CategoryIds = new();
+        public bool EnableMarketToMarket = true;
+        public bool EnableMarketToVendor = true;
+        public int DetailedLimit = 120;
+
+        public int MinimumStars = 1;
+        public double MinimumProfit;
+        public float MinimumRoiPercent;
+        public long MaximumCost = 999_999_999;
+        public float MaximumLiquidationDays = 3650;
+        public BuyTrackingFilter Tracking = BuyTrackingFilter.All;
+        public bool FindingsNq = true;
+        public bool FindingsHq = true;
+        public bool FindingsMarketToMarket = true;
+        public bool FindingsMarketToVendor = true;
+    }
+
+    private readonly BuyLaneUiState marketBuyLane = new();
+    private readonly BuyLaneUiState vendorBuyLane = new() { IncludeHq = false, FindingsHq = false };
+
+    private sealed record BuyTrackingSummary(bool IsBought, int Quantity, DateTimeOffset? LastPurchasedAtUtc, bool ExactListingMatch)
+    {
+        public string Label => !IsBought
+            ? "Not bought"
+            : ExactListingMatch ? $"Bought {Quantity:N0} ✓" : $"Bought {Quantity:N0}";
+    }
+
     private void DrawBuyModule()
     {
         var currentWorldId = CurrentBuyWorldId;
-        if (buyDetailsOpen && selectedBuyOpportunity is { } staleSelected && staleSelected.WorldId != currentWorldId)
-        {
-            selectedBuyOpportunity = null;
-            buyDetailsOpen = false;
-            buyPortfolioPlan = null;
-        }
-
         if (buyDetailsOpen && selectedBuyOpportunity is { } selected)
         {
-            DrawBuyDetailPage(selected);
-            return;
+            if (selected.WorldId != currentWorldId)
+            {
+                selectedBuyOpportunity = null;
+                buyDetailsOpen = false;
+            }
+            else
+            {
+                DrawBuyDetailPage(selected);
+                return;
+            }
         }
 
-        ImGui.TextWrapped("Should I Buy? now keeps two acquisition lanes separate: Market Board buys are scanned/ranked independently from renewable Vendor -> Market opportunities. Each lane keeps its own cached results so one cannot crowd the other out of detailed analysis.");
+        ImGui.TextWrapped("Should I Buy? separates Market Board acquisitions from renewable Vendor → Market opportunities. Each lane is discovered from Universalis independently, then filtered as findings. No hidden budget/ROI/holding rule silently removes discoveries, and Should I? never performs native queued Market Board searches.");
         if (currentWorldId != 0)
-        {
-            ImGui.TextDisabled($"Current-world scope: {CurrentBuyWorldName}. Recommendations from other worlds are hidden and cannot be live-verified here.");
-            var hiddenOtherWorld = plugin.BuyScanner.GetOpportunities().Count(x => x.WorldId != currentWorldId);
-            if (hiddenOtherWorld > 0)
-                ImGui.TextWrapped($"{hiddenOtherWorld:N0} cached recommendation(s) belong to another world and are hidden. Rerun discovery on {CurrentBuyWorldName} to replace them. Cross-world trading will be a separate explicit opt-in mode rather than being mixed into normal results.");
-        }
+            ImGui.TextDisabled($"Current-world scope: {CurrentBuyWorldName}. Purchases you actually make are tracked separately and shown directly on opportunity rows.");
         ImGui.Spacing();
 
-        DrawBuyControls();
-        DrawVendorBuyResults();
-        ImGui.Separator();
-        ImGui.TextDisabled("MARKET BOARD ACQUISITION OPPORTUNITIES");
-        DrawBuyScreenerAndDeepScan();
-        DrawBuyPortfolio();
-        ImGui.Separator();
-        DrawBuyResults();
+        if (!ImGui.BeginTabBar("##buy-lanes"))
+            return;
+
+        if (ImGui.BeginTabItem("Market Board Opportunities"))
+        {
+            DrawBuyLane(BuyScanLane.MarketBoard, marketBuyLane);
+            ImGui.EndTabItem();
+        }
+        if (ImGui.BeginTabItem("Vendor Opportunities"))
+        {
+            DrawBuyLane(BuyScanLane.Vendor, vendorBuyLane);
+            ImGui.EndTabItem();
+        }
+        ImGui.EndTabBar();
     }
 
-    private void DrawBuyControls()
+    private void DrawBuyLane(BuyScanLane lane, BuyLaneUiState state)
     {
-        var c = plugin.Configuration;
-        if (ImGui.CollapsingHeader("Capital, risk & scanner scope", ImGuiTreeNodeFlags.DefaultOpen))
-        {
-            var budget = c.BuyBudgetGil;
-            ImGui.SetNextItemWidth(150 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputInt("Budget (gil)", ref budget, 10_000, 100_000))
-            {
-                c.BuyBudgetGil = Math.Clamp(budget, 1_000, 999_999_999);
-                c.Save();
-            }
-            Tooltip("Maximum gil the scanner and budget portfolio may commit. Individual trades are also constrained by the per-item budget percentage below.");
-
-            var minProfit = c.BuyMinimumProfitGil;
-            ImGui.SetNextItemWidth(150 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputInt("Minimum potential profit", ref minProfit, 500, 5_000))
-            {
-                c.BuyMinimumProfitGil = Math.Clamp(minProfit, 0, c.BuyBudgetGil);
-                c.Save();
-            }
-            Tooltip("Reject opportunities whose modeled after-tax exit would not produce at least this much total profit. This is potential profit, before risk adjustment.");
-
-            var minRoi = c.BuyMinimumRoiPercent;
-            ImGui.SetNextItemWidth(150 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputFloat("Minimum ROI %", ref minRoi, 1, 5, "%.1f"))
-            {
-                c.BuyMinimumRoiPercent = Math.Clamp(minRoi, 0, 1000);
-                c.Save();
-            }
-            Tooltip("Minimum modeled return on the acquisition cost. Example: 20% means a 100,000g purchase must model at least 20,000g potential profit.");
-
-            var hold = c.BuyMaximumHoldingDays;
-            ImGui.SetNextItemWidth(150 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputFloat("Maximum expected holding (days)", ref hold, 0.5f, 2, "%.1f"))
-            {
-                c.BuyMaximumHoldingDays = Math.Clamp(hold, 0.25f, 365f);
-                c.Save();
-            }
-            Tooltip("Reject market exits expected to take longer than this to liquidate the modeled position. Lower values favor faster turnover.");
-
-            var maxItem = c.BuyMaximumInvestmentPercentPerItem;
-            ImGui.SetNextItemWidth(150 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputInt("Maximum budget per item %", ref maxItem, 1, 5))
-            {
-                c.BuyMaximumInvestmentPercentPerItem = Math.Clamp(maxItem, 1, 100);
-                c.Save();
-            }
-            Tooltip("Maximum share of your total scanner budget that may be tied up in one item/HQ variant. This prevents one trade from consuming the whole bankroll.");
-            var effectivePerItemCap = Math.Min(
-                (long)c.BuyBudgetGil,
-                Math.Max(1L, (long)c.BuyBudgetGil * Math.Clamp(c.BuyMaximumInvestmentPercentPerItem, 1, 100) / 100L));
-            ImGui.TextDisabled($"Effective per-item acquisition cap: {effectivePerItemCap:N0}g.");
-            Tooltip("This is a hard acquisition-package limit. Example: a 500,000g budget at 25% permits at most about 125,000g in one item/HQ variant, so more expensive flips are intentionally excluded.");
-
-            var maxPositions = c.BuyPortfolioMaxPositions;
-            ImGui.SetNextItemWidth(150 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputInt("Portfolio basket max items", ref maxPositions, 1, 2))
-            {
-                c.BuyPortfolioMaxPositions = Math.Clamp(maxPositions, 1, 20);
-                buyPortfolioPlan = null;
-                c.Save();
-            }
-            Tooltip("Hard cap on the number of distinct item/HQ positions the budget optimizer may place in one recommended basket. The allocator enforces this during optimization, not by trimming afterward.");
-
-            var deepLimit = c.BuyDeepCandidateLimit;
-            ImGui.SetNextItemWidth(150 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputInt("Detailed Universalis item limit", ref deepLimit, 10, 50))
-            {
-                c.BuyDeepCandidateLimit = Math.Clamp(deepLimit, 20, 500);
-                c.Save();
-            }
-            Tooltip("After discovery, only this many item IDs receive detailed Universalis current listings plus 90-day history. The shortlist is diversified: roughly one third of its slots protect large plausible absolute-gil gaps from being crowded out by tiny extreme-ROI items. DC/region aggregate values may rescue rare items for this detailed look, but final recommendations still require current-world detailed evidence. LIVE VERIFY remains the native FFXIV check.");
-
-            ImGui.Spacing();
-            var marketFlip = c.BuyEnableMarketToMarket;
-            if (ImGui.Checkbox("Market → Market", ref marketFlip))
-            {
-                c.BuyEnableMarketToMarket = marketFlip;
-                c.Save();
-            }
-            Tooltip("Buy one or more Market Board listings and resell them using the shared Should I Sell? exit model. NQ items sold by a normal gil vendor are deliberately excluded: their supply is renewable, so buying out cheap player listings cannot be assumed to create scarcity.");
-
-            ImGui.SameLine();
-            var vendorMarket = c.BuyEnableVendorToMarket;
-            if (ImGui.Checkbox("Vendor → Market", ref vendorMarket))
-            {
-                c.BuyEnableVendorToMarket = vendorMarket;
-                c.Save();
-            }
-            Tooltip("Buy from a verified normal gil NPC vendor and resell on the Market Board. Because this supply is renewable, the model targets only one working listing (maximum 99 units) and never relies on buying out competing player listings.");
-
-            ImGui.SameLine();
-            var marketVendor = c.BuyEnableMarketToVendor;
-            if (ImGui.Checkbox("Market → Vendor", ref marketVendor))
-            {
-                c.BuyEnableMarketToVendor = marketVendor;
-                c.Save();
-            }
-            Tooltip("Look for Market Board listings whose total acquisition cost is below the item's guaranteed NPC buyback value.");
-
-            var equipment = c.BuyIncludeEquipment;
-            if (ImGui.Checkbox("Include equippable gear", ref equipment))
-            {
-                c.BuyIncludeEquipment = equipment;
-                c.Save();
-            }
-            Tooltip("Include equippable items in discovery. Gear markets can be slower and more fragmented than materials, so this is off by default.");
-            if (!c.BuyIncludeEquipment)
-                ImGui.TextDisabled("High-ticket equippable gear/glamour opportunities are excluded while this is off.");
-
-            var categoryFilter = c.BuyUseCategoryFilter;
-            if (ImGui.Checkbox("Filter by FFXIV item UI categories", ref categoryFilter))
-            {
-                c.BuyUseCategoryFilter = categoryFilter;
-                if (categoryFilter && c.BuyIncludedCategoryIds.Count == 0)
-                    c.BuyIncludedCategoryIds = plugin.Catalog.GetCategories().Select(x => x.CategoryId).ToList();
-                c.Save();
-            }
-            Tooltip("Restrict discovery to selected in-game item UI categories. Disable this to scan the full marketable universe allowed by the other filters.");
-
-            if (c.BuyUseCategoryFilter)
-                DrawBuyCategoryScope();
-        }
-
+        var vendor = lane == BuyScanLane.Vendor;
+        ImGui.TextWrapped(vendor
+            ? "Vendor → Market looks for normal-gil NPC items whose realistic Market Board exit creates a worthwhile spread. Vendor supply is treated as renewable; recommendations target a working listing rather than speculative stockpiles."
+            : "Market Board opportunities look for listing packages that can be acquired manually and exited through the shared Should I Sell? model, including guaranteed Market → Vendor cases where appropriate.");
         ImGui.Spacing();
-        var scanner = plugin.BuyScanner;
-        if (!scanner.IsScanning)
+
+        DrawBuyDiscoveryFilters(lane, state);
+        ImGui.Spacing();
+        DrawBuyUniversalisUpdate(lane, state);
+        ImGui.Separator();
+        DrawBuyFindingsFilters(lane, state);
+        ImGui.Spacing();
+        DrawBuyLaneTable(lane, state);
+    }
+
+    private void DrawBuyDiscoveryFilters(BuyScanLane lane, BuyLaneUiState state)
+    {
+        if (!ImGui.CollapsingHeader($"Discovery filters##buy-discovery-{lane}", ImGuiTreeNodeFlags.DefaultOpen))
+            return;
+
+        ImGui.TextDisabled("These filters decide which catalog items Universalis should inspect. Profit, ROI, cost and holding-time filters are intentionally applied only after discovery.");
+
+        ImGui.SetNextItemWidth(330 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint($"##buy-discovery-name-{lane}", "Item name contains...", ref state.DiscoverySearch, 128);
+        Tooltip("Restrict Universalis discovery to item names containing this text. Leave blank for the full eligible catalog.");
+
+        ImGui.SameLine();
+        var equipment = state.IncludeEquipment;
+        if (ImGui.Checkbox($"Include equipment##buy-equipment-{lane}", ref equipment))
+            state.IncludeEquipment = equipment;
+        Tooltip("Include equippable items such as gear and glamour-capable equipment in discovery.");
+
+        if (lane == BuyScanLane.MarketBoard)
         {
-            if (ImGui.Button("SCAN MARKET BOARD BUYS"))
-            {
-                selectedBuyOpportunity = null;
-                buyDetailsOpen = false;
-                buyPortfolioPlan = null;
-                _ = scanner.ScanMarketAsync();
-            }
-            Tooltip("Scan only acquisition routes that spend gil on the Market Board: Market -> Market strategies plus Market -> Vendor. Vendor -> Market candidates do not consume this scan's deep-analysis slots.");
+            var nq = state.IncludeNq;
+            if (ImGui.Checkbox("NQ##buy-discovery-nq", ref nq))
+                state.IncludeNq = nq;
+            ImGui.SameLine();
+            var hq = state.IncludeHq;
+            if (ImGui.Checkbox("HQ##buy-discovery-hq", ref hq))
+                state.IncludeHq = hq;
 
             ImGui.SameLine();
-            if (ImGui.Button("SCAN VENDOR -> MARKET"))
-            {
-                selectedBuyOpportunity = null;
-                buyDetailsOpen = false;
-                _ = scanner.ScanVendorAsync();
-            }
-            Tooltip("Independent vendor lane. It scans only items verified in game data as normal-gil vendor purchases, then deep-checks their current-world Market Board exit. Results persist when you later run the Market Board scan.");
+            var market = state.EnableMarketToMarket;
+            if (ImGui.Checkbox("Market → Market##buy-discovery-m2m", ref market))
+                state.EnableMarketToMarket = market;
+            ImGui.SameLine();
+            var vendorExit = state.EnableMarketToVendor;
+            if (ImGui.Checkbox("Market → Vendor##buy-discovery-m2v", ref vendorExit))
+                state.EnableMarketToVendor = vendorExit;
         }
         else
         {
-            if (ImGui.Button("Stop scan"))
-                scanner.CancelScan();
-            ImGui.SameLine();
-            var active = scanner.ActiveLane == BuyScanLane.Vendor ? "Vendor -> Market" : "Market Board";
-            ImGui.TextDisabled($"{active}: {scanner.Status}");
+            ImGui.TextDisabled("Vendor discovery is NQ-only because normal NPC gil shops do not sell HQ variants.");
         }
 
-        if (!scanner.IsScanning)
+        var useCategories = state.UseCategoryFilter;
+        if (ImGui.Checkbox($"Filter by FFXIV item categories##buy-category-toggle-{lane}", ref useCategories))
         {
-            ImGui.TextDisabled($"Cached lanes: {scanner.GetMarketOpportunities().Count:N0} Market Board package(s) • {scanner.GetVendorOpportunities().Count:N0} Vendor -> Market package(s). {scanner.Status}");
+            state.UseCategoryFilter = useCategories;
+            if (useCategories && state.CategoryIds.Count == 0)
+            {
+                foreach (var category in plugin.Catalog.GetCategories())
+                    state.CategoryIds.Add(category.CategoryId);
+            }
         }
-        else if (scanner.BroadItemsTotal > 0 && scanner.BroadItemsScanned < scanner.BroadItemsTotal)
-        {
-            var fraction = scanner.BroadItemsScanned / (float)Math.Max(1, scanner.BroadItemsTotal);
-            var active = scanner.ActiveLane == BuyScanLane.Vendor ? "Vendor discovery" : "Market discovery";
-            ImGui.ProgressBar(fraction, new Vector2(-1, 0), $"{active} {scanner.BroadItemsScanned:N0}/{scanner.BroadItemsTotal:N0}");
-        }
-        else if (scanner.DeepItemsTotal > 0)
-        {
-            var fraction = scanner.DeepItemsScanned / (float)Math.Max(1, scanner.DeepItemsTotal);
-            var active = scanner.ActiveLane == BuyScanLane.Vendor ? "Vendor detailed" : "Market detailed";
-            ImGui.ProgressBar(fraction, new Vector2(-1, 0), $"{active} {scanner.DeepItemsScanned:N0}/{scanner.DeepItemsTotal:N0}");
-        }
+        if (state.UseCategoryFilter)
+            DrawBuyDiscoveryCategories(lane, state);
+
+        var detailed = state.DetailedLimit;
+        ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
+        if (ImGui.SliderInt($"Detailed Universalis candidates##buy-detailed-{lane}", ref detailed, 20, 500, "%d items"))
+            state.DetailedLimit = Math.Clamp(detailed, 20, 500);
+        Tooltip("After the cheap aggregated discovery pass, at most this many unique item IDs receive detailed current listings plus 90-day history from Universalis.");
     }
 
-    private void DrawBuyCategoryScope()
+    private void DrawBuyDiscoveryCategories(BuyScanLane lane, BuyLaneUiState state)
     {
-        var c = plugin.Configuration;
         var categories = plugin.Catalog.GetCategories();
-        ImGui.SetNextItemWidth(280 * ImGuiHelpers.GlobalScale);
-        ImGui.InputTextWithHint("##buy-category-search", "Filter category names...", ref buyCategorySearch, 96);
-        Tooltip("Filter this category checklist by name. It does not change the scanner until categories themselves are checked or unchecked.");
+        ImGui.SetNextItemWidth(260 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint($"##buy-category-search-{lane}", "Filter category names...", ref state.CategorySearch, 96);
         ImGui.SameLine();
-        if (ImGui.SmallButton("All"))
+        if (ImGui.SmallButton($"All##buy-category-all-{lane}"))
         {
-            c.BuyIncludedCategoryIds = categories.Select(x => x.CategoryId).ToList();
-            c.Save();
+            state.CategoryIds.Clear();
+            foreach (var category in categories)
+                state.CategoryIds.Add(category.CategoryId);
         }
         ImGui.SameLine();
-        if (ImGui.SmallButton("None"))
-        {
-            c.BuyIncludedCategoryIds.Clear();
-            c.Save();
-        }
+        if (ImGui.SmallButton($"None##buy-category-none-{lane}"))
+            state.CategoryIds.Clear();
 
-        var selected = c.BuyIncludedCategoryIds.ToHashSet();
-        if (ImGui.BeginChild("##buy-category-scope", new Vector2(0, 150 * ImGuiHelpers.GlobalScale), true))
+        if (ImGui.BeginChild($"##buy-category-list-{lane}", new Vector2(0, 135 * ImGuiHelpers.GlobalScale), true))
         {
             foreach (var category in categories.Where(x =>
-                         string.IsNullOrWhiteSpace(buyCategorySearch) ||
-                         x.Name.Contains(buyCategorySearch, StringComparison.CurrentCultureIgnoreCase)))
+                         string.IsNullOrWhiteSpace(state.CategorySearch) ||
+                         x.Name.Contains(state.CategorySearch, StringComparison.CurrentCultureIgnoreCase)))
             {
-                var enabled = selected.Contains(category.CategoryId);
-                if (!ImGui.Checkbox($"{category.Name}##buy-cat-{category.CategoryId}", ref enabled))
+                var enabled = state.CategoryIds.Contains(category.CategoryId);
+                if (!ImGui.Checkbox($"{category.Name}##buy-cat-{lane}-{category.CategoryId}", ref enabled))
                     continue;
-                if (enabled)
-                    selected.Add(category.CategoryId);
-                else
-                    selected.Remove(category.CategoryId);
-                c.BuyIncludedCategoryIds = selected.Order().ToList();
-                c.Save();
+                if (enabled) state.CategoryIds.Add(category.CategoryId);
+                else state.CategoryIds.Remove(category.CategoryId);
             }
             ImGui.EndChild();
         }
-        ImGui.TextDisabled($"{selected.Count:N0} of {categories.Count:N0} categories selected.");
+        ImGui.TextDisabled($"{state.CategoryIds.Count:N0} of {categories.Count:N0} categories selected.");
     }
 
-    private void DrawBuyPortfolio()
+    private void DrawBuyUniversalisUpdate(BuyScanLane lane, BuyLaneUiState state)
     {
-        var opportunities = GetFilteredBuyOpportunities();
-        if (opportunities.Count == 0 || plugin.BuyScanner.IsScanning)
-            return;
+        var scanner = plugin.BuyScanner;
+        var thisLaneRunning = scanner.IsScanning && scanner.ActiveLane == lane;
+        var otherLaneRunning = scanner.IsScanning && scanner.ActiveLane != lane;
+        var laneLabel = lane == BuyScanLane.Vendor ? "VENDOR OPPORTUNITIES" : "MARKET BOARD OPPORTUNITIES";
 
-        if (buyPortfolioPlan is { } oldPlan && oldPlan.Selections.Any(x => x.WorldId != CurrentBuyWorldId))
-            buyPortfolioPlan = null;
-
-        var c = plugin.Configuration;
-        ImGui.Spacing();
-        if (ImGui.Button("BUILD BUDGET PORTFOLIO"))
-            buyPortfolioPlan = PortfolioAllocator.Build(opportunities, c.BuyBudgetGil, c.BuyPortfolioMaxPositions);
-        Tooltip("Build a basket that chooses at most one strategy/package per item/HQ variant, maximizes total risk-adjusted profit, stays under budget, and respects your basket-size cap.");
-
-        if (buyPortfolioPlan is not { } plan)
+        if (otherLaneRunning)
+            ImGui.BeginDisabled();
+        if (!scanner.IsScanning)
         {
-            ImGui.SameLine();
-            ImGui.TextDisabled($"Optional: allocate your budget across up to {c.BuyPortfolioMaxPositions:N0} opportunities instead of ranking one trade at a time.");
-            return;
-        }
-
-        if (plan.BudgetGil != c.BuyBudgetGil || plan.MaxPositions != c.BuyPortfolioMaxPositions)
-        {
-            ImGui.SameLine();
-            ImGui.TextDisabled("Portfolio settings changed — rebuild to update the basket.");
-        }
-
-        ImGui.TextWrapped($"Portfolio: invest {plan.InvestedGil:N0}g of {plan.BudgetGil:N0}g across {plan.Selections.Count:N0}/{plan.MaxPositions:N0} allowed position(s), leaving {plan.ReserveGil:N0}g unallocated. The optimizer may deliberately keep cash when the scan does not contain enough worthwhile opportunities.");
-        if (ImGui.BeginTable("##buy-portfolio-metrics", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV))
-        {
-            ImGui.TableNextRow();
-            MetricCell(0, "Invested", Gil(plan.InvestedGil), "Actual gil allocated by the basket. Reserve remains unused.");
-            MetricCell(1, "Potential profit", Gil(plan.PotentialProfit), "Sum of modeled after-tax upside if every recommended exit succeeds as modeled.");
-            MetricCell(2, "Risk-adjusted profit", Gil(plan.RiskAdjustedProfit), "Potential upside discounted by confidence, liquidity and stability. This is the allocator's main economic objective.");
-            MetricCell(3, "Weighted score", plan.WeightedOpportunityScore.ToString("0.0"), "Opportunity scores weighted by invested gil across the selected basket.");
-            ImGui.EndTable();
-        }
-
-        if (plan.Selections.Count == 0)
-        {
-            ImGui.TextDisabled("No current opportunity survived the configured scanner filters, budget and basket constraints.");
-            return;
-        }
-
-        if (ImGui.CollapsingHeader($"Recommended basket ({plan.Selections.Count:N0})##buy-portfolio-basket", ImGuiTreeNodeFlags.DefaultOpen))
-        {
-            var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable;
-            if (ImGui.BeginTable("##buy-portfolio-table", 10, flags))
+            if (ImGui.Button($"UPDATE {laneLabel} FROM UNIVERSALIS##buy-update-{lane}"))
             {
-                ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.WidthFixed, 118 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Strategy", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Buy", ImGuiTableColumnFlags.WidthFixed, 50 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Potential", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Risk adj.", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("ROI", ImGuiTableColumnFlags.WidthFixed, 60 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Live", ImGuiTableColumnFlags.WidthFixed, 82 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Liquidate", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
-                DrawPortfolioHeaders();
-
-                foreach (var row in plan.Selections)
-                    DrawPortfolioRow(row);
-
-                ImGui.EndTable();
+                ApplyDiscoverySettings(lane, state);
+                selectedBuyOpportunity = null;
+                buyDetailsOpen = false;
+                if (lane == BuyScanLane.Vendor)
+                    _ = scanner.ScanVendorAsync();
+                else
+                    _ = scanner.ScanMarketAsync();
             }
+            Tooltip("Run aggregated Universalis discovery followed by detailed Universalis current-listing + 90-day-history analysis for this lane. This does not make native FFXIV Market Board requests.");
         }
-    }
-
-    private void DrawPortfolioHeaders()
-    {
-        ImGui.TableNextRow();
-        HeaderCell(0, "Rating", "Stars are broad quality bands; the 0–100 score is the stricter ranking used to compare opportunities.");
-        HeaderCell(1, "Item", "Item and HQ/NQ variant selected for this basket position.");
-        HeaderCell(2, "Strategy", "Economic route used by the recommendation: market flip, sweep, split, consolidate or market-to-vendor.");
-        HeaderCell(3, "Buy", "Number of new units to acquire for this position.");
-        HeaderCell(4, "Cost", "Total acquisition cost for the recommended package, including reported buyer tax on Market Board listings.");
-        HeaderCell(5, "Potential", "Modeled profit if the recommended exit succeeds at the target net value.");
-        HeaderCell(6, "Risk adj.", "Potential profit discounted by evidence confidence, liquidation speed and market stability.");
-        HeaderCell(7, "ROI", "Potential profit divided by acquisition cost.");
-        HeaderCell(8, "Live", "Native FFXIV verification state for this recommendation: Verified, Changed, Refreshed, or Not checked.");
-        HeaderCell(9, "Liquidate", "Estimated time for the modeled resulting position to fully sell, including queue time where applicable.");
-    }
-
-    private void DrawPortfolioRow(BuyOpportunity row)
-    {
-        ImGui.TableNextRow();
-        ImGui.TableSetColumnIndex(0);
-        var selected = selectedBuyOpportunity == row && buyDetailsOpen;
-        if (ImGui.Selectable($"{Stars(row.Stars)} {row.OpportunityScore:0}##portfolio-{row.Item.ItemId}-{row.IsHq}-{row.Kind}", selected, ImGuiSelectableFlags.SpanAllColumns))
+        else if (thisLaneRunning)
         {
-            selectedBuyOpportunity = row;
-            buyDetailsOpen = true;
+            if (ImGui.Button($"STOP UNIVERSALIS UPDATE##buy-stop-{lane}"))
+                scanner.CancelScan();
         }
-        Tooltip("Click anywhere on this highlighted row to open the full opportunity analysis.");
-                ImGui.TableSetColumnIndex(1);
-        ImGui.TextUnformatted(row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty));
-        ItemNameContextMenu($"##copy-buy-name-{row.Item.ItemId}-{row.IsHq}-{row.Kind}-{row.AcquisitionCost}", row.Item.Name);
-        ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted(row.StrategyLabel);
-        ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted(row.AcquireQuantity.ToString("N0"));
-        ImGui.TableSetColumnIndex(4); ImGui.TextUnformatted(Gil(row.AcquisitionCost));
-        ImGui.TableSetColumnIndex(5); ImGui.TextUnformatted(Gil(row.PotentialProfit));
-        ImGui.TableSetColumnIndex(6); ImGui.TextUnformatted(Gil(row.RiskAdjustedProfit));
-        ImGui.TableSetColumnIndex(7); ImGui.TextUnformatted(Percent(row.Roi));
-        ImGui.TableSetColumnIndex(8); ImGui.TextUnformatted(LiveStateLabel(GetBuyLiveState(row)));
-        ImGui.TableSetColumnIndex(9); ImGui.TextUnformatted(Days(row.EstimatedLiquidationDays));
-    }
+        else
+        {
+            ImGui.TextDisabled("The other Buy lane is currently updating from Universalis.");
+        }
+        if (otherLaneRunning)
+            ImGui.EndDisabled();
 
-
-    private void DrawVendorBuyResults()
-    {
-        var all = GetCurrentWorldVendorOpportunities()
-            .OrderByDescending(x => x.OpportunityScore)
-            .ThenByDescending(x => x.RiskAdjustedProfit)
-            .ThenByDescending(x => x.PotentialProfit)
-            .ToList();
-
-        if (!ImGui.CollapsingHeader($"VENDOR -> MARKET OPPORTUNITIES ({all.Count:N0})##vendor-buy-results", ImGuiTreeNodeFlags.DefaultOpen))
-            return;
-
-        ImGui.TextWrapped("Renewable NPC supply gets its own opportunity board. This table never competes with Market Board acquisitions for shortlist/deep-analysis slots, and a Market Board scan does not erase these results.");
-        ImGui.SetNextItemWidth(320 * ImGuiHelpers.GlobalScale);
-        ImGui.InputTextWithHint("##vendor-buy-search", "Filter vendor opportunities by item...", ref vendorBuySearch, 128);
-        var rows = all
-            .Where(x => string.IsNullOrWhiteSpace(vendorBuySearch) || x.Item.Name.Contains(vendorBuySearch, StringComparison.CurrentCultureIgnoreCase))
-            .ToList();
         ImGui.SameLine();
-        ImGui.TextDisabled($"{rows.Count:N0}/{all.Count:N0} shown");
+        ImGui.TextDisabled(scanner.Status);
 
-        if (rows.Count == 0)
+        if (thisLaneRunning && scanner.BroadItemsTotal > 0 && scanner.BroadItemsScanned < scanner.BroadItemsTotal)
         {
-            ImGui.TextDisabled(plugin.BuyScanner.LastVendorCompletedUtc is null
-                ? "No vendor scan yet. Use SCAN VENDOR -> MARKET above."
-                : "No current Vendor -> Market opportunity survives the configured ROI/profit/holding rules.");
+            var fraction = scanner.BroadItemsScanned / (float)Math.Max(1, scanner.BroadItemsTotal);
+            ImGui.ProgressBar(fraction, new Vector2(-1, 0), $"Universalis discovery {scanner.BroadItemsScanned:N0}/{scanner.BroadItemsTotal:N0}");
+        }
+        else if (thisLaneRunning && scanner.DeepItemsTotal > 0)
+        {
+            var fraction = scanner.DeepItemsScanned / (float)Math.Max(1, scanner.DeepItemsTotal);
+            ImGui.ProgressBar(fraction, new Vector2(-1, 0), $"Detailed Universalis {scanner.DeepItemsScanned:N0}/{scanner.DeepItemsTotal:N0}");
+        }
+    }
+
+    private void ApplyDiscoverySettings(BuyScanLane lane, BuyLaneUiState state)
+    {
+        var c = plugin.Configuration;
+        c.BuyDeepCandidateLimit = Math.Clamp(state.DetailedLimit, 20, 500);
+        c.BuyIncludeEquipment = state.IncludeEquipment;
+        c.BuyUseCategoryFilter = state.UseCategoryFilter;
+        c.BuyIncludedCategoryIds = state.CategoryIds.Order().ToList();
+        c.BuyDiscoveryNameFilter = state.DiscoverySearch.Trim();
+        c.BuyDiscoveryIncludeNq = lane == BuyScanLane.Vendor || state.IncludeNq;
+        c.BuyDiscoveryIncludeHq = lane == BuyScanLane.MarketBoard && state.IncludeHq;
+        c.BuyEnableMarketToMarket = lane == BuyScanLane.MarketBoard && state.EnableMarketToMarket;
+        c.BuyEnableMarketToVendor = lane == BuyScanLane.MarketBoard && state.EnableMarketToVendor;
+        c.BuyEnableVendorToMarket = lane == BuyScanLane.Vendor;
+        // These are runtime discovery inputs. Do not persist the temporary lane copy over the other
+        // tab's independent UI state; the scanner snapshots them immediately when the run starts.
+    }
+
+    private void DrawBuyFindingsFilters(BuyScanLane lane, BuyLaneUiState state)
+    {
+        if (!ImGui.CollapsingHeader($"Findings filters##buy-findings-{lane}", ImGuiTreeNodeFlags.DefaultOpen))
             return;
+
+        ImGui.SetNextItemWidth(300 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint($"##buy-findings-search-{lane}", "Filter found item names...", ref state.FindingsSearch, 128);
+
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(120 * ImGuiHelpers.GlobalScale);
+        if (ImGui.BeginCombo($"##buy-tracking-filter-{lane}", state.Tracking switch
+            {
+                BuyTrackingFilter.Bought => "Bought",
+                BuyTrackingFilter.NotBought => "Not bought",
+                _ => "All tracking",
+            }))
+        {
+            foreach (var filter in Enum.GetValues<BuyTrackingFilter>())
+            {
+                var label = filter switch
+                {
+                    BuyTrackingFilter.Bought => "Bought / tracked",
+                    BuyTrackingFilter.NotBought => "Not bought",
+                    _ => "All",
+                };
+                if (ImGui.Selectable(label, state.Tracking == filter))
+                    state.Tracking = filter;
+            }
+            ImGui.EndCombo();
         }
 
-        var height = Math.Min(285, 48 + rows.Count * 25) * ImGuiHelpers.GlobalScale;
+        var stars = state.MinimumStars;
+        ImGui.SetNextItemWidth(155 * ImGuiHelpers.GlobalScale);
+        if (ImGui.SliderInt($"Minimum stars##buy-findings-stars-{lane}", ref stars, 1, 5, "%d★+"))
+            state.MinimumStars = stars;
+
+        var minProfit = state.MinimumProfit;
+        ImGui.SetNextItemWidth(180 * ImGuiHelpers.GlobalScale);
+        if (ImGui.InputDouble($"Minimum profit##buy-findings-profit-{lane}", ref minProfit, 1000, 10000, "%.0f g"))
+            state.MinimumProfit = Math.Max(0, minProfit);
+        ImGui.SameLine();
+        var minRoi = state.MinimumRoiPercent;
+        ImGui.SetNextItemWidth(160 * ImGuiHelpers.GlobalScale);
+        if (ImGui.InputFloat($"Minimum ROI %##buy-findings-roi-{lane}", ref minRoi, 1, 5, "%.1f"))
+            state.MinimumRoiPercent = Math.Max(0, minRoi);
+
+        var maxCost = state.MaximumCost;
+        ImGui.SetNextItemWidth(210 * ImGuiHelpers.GlobalScale);
+        if (ImGui.DragLong($"Maximum acquisition cost##buy-findings-cost-{lane}", ref maxCost, 1000, 0, 999_999_999))
+            state.MaximumCost = Math.Max(0, maxCost);
+        ImGui.SameLine();
+        var maxDays = state.MaximumLiquidationDays;
+        ImGui.SetNextItemWidth(190 * ImGuiHelpers.GlobalScale);
+        if (ImGui.InputFloat($"Maximum liquidation days##buy-findings-days-{lane}", ref maxDays, 0.5f, 5, "%.1f"))
+            state.MaximumLiquidationDays = Math.Max(0.05f, maxDays);
+
+        if (lane == BuyScanLane.MarketBoard)
+        {
+            var nq = state.FindingsNq;
+            if (ImGui.Checkbox("Show NQ##buy-findings-nq", ref nq)) state.FindingsNq = nq;
+            ImGui.SameLine();
+            var hq = state.FindingsHq;
+            if (ImGui.Checkbox("Show HQ##buy-findings-hq", ref hq)) state.FindingsHq = hq;
+            ImGui.SameLine();
+            var m2m = state.FindingsMarketToMarket;
+            if (ImGui.Checkbox("Market exits##buy-findings-m2m", ref m2m)) state.FindingsMarketToMarket = m2m;
+            ImGui.SameLine();
+            var m2v = state.FindingsMarketToVendor;
+            if (ImGui.Checkbox("Vendor exits##buy-findings-m2v", ref m2v)) state.FindingsMarketToVendor = m2v;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton($"Reset findings##buy-findings-reset-{lane}"))
+            ResetFindings(state, lane);
+    }
+
+    private static void ResetFindings(BuyLaneUiState state, BuyScanLane lane)
+    {
+        state.FindingsSearch = string.Empty;
+        state.MinimumStars = 1;
+        state.MinimumProfit = 0;
+        state.MinimumRoiPercent = 0;
+        state.MaximumCost = 999_999_999;
+        state.MaximumLiquidationDays = 3650;
+        state.Tracking = BuyTrackingFilter.All;
+        state.FindingsNq = true;
+        state.FindingsHq = lane == BuyScanLane.MarketBoard;
+        state.FindingsMarketToMarket = true;
+        state.FindingsMarketToVendor = true;
+    }
+
+    private void DrawBuyLaneTable(BuyScanLane lane, BuyLaneUiState state)
+    {
+        var raw = (lane == BuyScanLane.Vendor
+                ? plugin.BuyScanner.GetVendorOpportunities()
+                : plugin.BuyScanner.GetMarketOpportunities())
+            .Where(x => CurrentBuyWorldId == 0 || x.WorldId == CurrentBuyWorldId)
+            .ToList();
+
+        var rows = raw
+            .Where(x => PassesBuyFindings(x, lane, state))
+            .ToList();
+        rows = SortBuyRows(rows);
+
+        var completedAt = lane == BuyScanLane.Vendor
+            ? plugin.BuyScanner.LastVendorCompletedUtc
+            : plugin.BuyScanner.LastMarketCompletedUtc;
+        ImGui.TextDisabled(completedAt is null
+            ? "No Universalis update has completed for this lane yet."
+            : $"Showing {rows.Count:N0} of {raw.Count:N0} finding(s). Last lane update {FormatBuyAge(DateTimeOffset.UtcNow - completedAt.Value)} ago.");
+
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
-        if (!ImGui.BeginTable("##vendor-buy-table", 10, flags, new Vector2(0, height)))
+        if (!ImGui.BeginTable($"##buy-lane-table-{lane}", 11, flags, new Vector2(0, -1)))
             return;
 
         ImGui.TableSetupScrollFreeze(0, 1);
-        ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.WidthFixed, 118 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.WidthFixed, 116 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("Vendor/u", ImGuiTableColumnFlags.WidthFixed, 78 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Buy", ImGuiTableColumnFlags.WidthFixed, 52 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Strategy", ImGuiTableColumnFlags.WidthFixed, 118 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Acquire", ImGuiTableColumnFlags.WidthFixed, 58 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 88 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Exit @", ImGuiTableColumnFlags.WidthFixed, 82 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Stack", ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Profit", ImGuiTableColumnFlags.WidthFixed, 88 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Profit", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("ROI", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Liquidate", ImGuiTableColumnFlags.WidthFixed, 72 * ImGuiHelpers.GlobalScale);
-        ImGui.TableHeadersRow();
+        ImGui.TableSetupColumn("Confidence", ImGuiTableColumnFlags.WidthFixed, 78 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Tracking", ImGuiTableColumnFlags.WidthFixed, 105 * ImGuiHelpers.GlobalScale);
+        DrawBuyLaneHeaders();
 
         foreach (var row in rows)
-        {
-            ImGui.TableNextRow();
-            ImGui.TableSetColumnIndex(0);
-            if (ImGui.Selectable($"{Stars(row.Stars)} {row.OpportunityScore:0}##vendor-buy-{row.Item.ItemId}-{row.AcquisitionCost}", false, ImGuiSelectableFlags.SpanAllColumns))
-            {
-                selectedBuyOpportunity = row;
-                buyDetailsOpen = true;
-            }
-            Tooltip($"Click for full analysis. Vendor supply is renewable; the recommendation targets one working listing rather than a speculative stockpile.\nConfidence: {row.Confidence:P0}\nRecent sales: {row.SalesSampleCount:N0}");
-            ImGui.TableSetColumnIndex(1);
-            ImGui.TextUnformatted(row.Item.Name);
-            ItemNameContextMenu($"##copy-vendor-buy-{row.Item.ItemId}-{row.AcquisitionCost}", row.Item.Name);
-            ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted(Gil(row.AverageAcquisitionUnitCost));
-            ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted(row.AcquireQuantity.ToString("N0"));
-            ImGui.TableSetColumnIndex(4); ImGui.TextUnformatted(Gil(row.AcquisitionCost));
-            ImGui.TableSetColumnIndex(5); ImGui.TextUnformatted(row.SuggestedExitUnitPrice is { } exit ? $"{exit:N0}g" : "—");
-            ImGui.TableSetColumnIndex(6); ImGui.TextUnformatted(row.SuggestedExitStackSize.ToString("N0"));
-            ImGui.TableSetColumnIndex(7); ImGui.TextUnformatted(Gil(row.PotentialProfit));
-            ImGui.TableSetColumnIndex(8); ImGui.TextUnformatted(Percent(row.Roi));
-            ImGui.TableSetColumnIndex(9); ImGui.TextUnformatted(Days(row.EstimatedLiquidationDays));
-        }
-
+            DrawBuyLaneRow(row);
         ImGui.EndTable();
-        ImGui.TextDisabled("Actually bought from the NPC? Record it under Should I Tycoon? -> Purchases so FIFO profit tracking gets the real vendor cost basis.");
     }
 
-    private void DrawBuyResults()
+    private bool PassesBuyFindings(BuyOpportunity row, BuyScanLane lane, BuyLaneUiState state)
     {
-        var rows = SortBuyRows(GetFilteredBuyOpportunities());
+        if (!string.IsNullOrWhiteSpace(state.FindingsSearch) &&
+            !row.Item.Name.Contains(state.FindingsSearch, StringComparison.CurrentCultureIgnoreCase))
+            return false;
+        if (row.Stars < state.MinimumStars || row.PotentialProfit < state.MinimumProfit)
+            return false;
+        if (row.Roi * 100.0 < state.MinimumRoiPercent || row.AcquisitionCost > state.MaximumCost)
+            return false;
+        if (row.EstimatedLiquidationDays is { } days && days > state.MaximumLiquidationDays)
+            return false;
 
-        ImGui.TextDisabled($"{rows.Count:N0} visible opportunity package(s). Click a header to sort. Click anywhere on a row to open its full analysis.");
-
-        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
-        if (ImGui.BeginTable("##buy-opportunity-table", 12, flags, new Vector2(0, -1)))
+        if (lane == BuyScanLane.MarketBoard)
         {
-            ImGui.TableSetupScrollFreeze(0, 1);
-            ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn("Strategy", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("Buy", ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("Exit @", ImGuiTableColumnFlags.WidthFixed, 75 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("Stack", ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("Profit", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("Risk adj.", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("ROI", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("Live", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("Liquidate", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
-            DrawSortableBuyHeaders();
-
-            foreach (var row in rows)
-                DrawBuyOpportunityRow(row);
-
-            ImGui.EndTable();
+            if (row.IsHq && !state.FindingsHq) return false;
+            if (!row.IsHq && !state.FindingsNq) return false;
+            if (row.Kind == BuyOpportunityKind.MarketToVendor && !state.FindingsMarketToVendor) return false;
+            if (row.Kind != BuyOpportunityKind.MarketToVendor && !state.FindingsMarketToMarket) return false;
         }
+
+        var tracking = GetBuyTracking(row);
+        return state.Tracking switch
+        {
+            BuyTrackingFilter.Bought => tracking.IsBought,
+            BuyTrackingFilter.NotBought => !tracking.IsBought,
+            _ => true,
+        };
     }
 
-    private void DrawSortableBuyHeaders()
+    private void DrawBuyLaneHeaders()
     {
         ImGui.TableNextRow();
-        SortableHeader(0, "Rating", BuySortColumn.Rating, "Overall 0–100 opportunity score plus 1–5 star band. Score combines ROI, profit, liquidity, price advantage, demand, stability, confidence and execution friction.");
-        SortableHeader(1, "Item", BuySortColumn.Item, "Item name and HQ/NQ variant.");
-        SortableHeader(2, "Strategy", BuySortColumn.Strategy, "Recommended economic route for acquiring and exiting the position.");
-        SortableHeader(3, "Buy", BuySortColumn.BuyQuantity, "Recommended number of new units to acquire. Market Board listings are purchased as complete listing stacks.");
-        SortableHeader(4, "Cost", BuySortColumn.Cost, "Total acquisition cost of the recommended package, including reported buyer tax when applicable.");
-        SortableHeader(5, "Exit @", BuySortColumn.ExitPrice, "Suggested gross Market Board exit price per unit, or guaranteed vendor payout for Market → Vendor.");
-        SortableHeader(6, "Stack", BuySortColumn.StackSize, "Suggested units per exit listing based on historical buyer stack behavior and the resulting position.");
-        SortableHeader(7, "Profit", BuySortColumn.PotentialProfit, "Potential total profit after modeled seller tax if the suggested exit succeeds.");
-        SortableHeader(8, "Risk adj.", BuySortColumn.RiskAdjustedProfit, "Potential profit discounted for confidence, liquidation speed and stability. Useful for comparing capital allocation choices.");
-        SortableHeader(9, "ROI", BuySortColumn.Roi, "Potential profit divided by total acquisition cost.");
-        HeaderCell(10, "Live", "Native FFXIV verification state. Use the Live filter above to show only Verified, Changed, Refreshed or Not checked opportunities.");
-        SortableHeader(11, "Liquidate", BuySortColumn.Liquidation, "Estimated time to sell the full modeled position, not merely the first unit.");
+        SortableHeader(0, "Rating", BuySortColumn.Rating, "Opportunity score and broad star band.");
+        SortableHeader(1, "Item", BuySortColumn.Item, "Item and quality variant.");
+        SortableHeader(2, "Strategy", BuySortColumn.Strategy, "Acquisition/exit route modeled for this finding.");
+        SortableHeader(3, "Acquire", BuySortColumn.BuyQuantity, "Recommended new units to acquire for the modeled package.");
+        SortableHeader(4, "Cost", BuySortColumn.Cost, "Total modeled acquisition cost.");
+        SortableHeader(5, "Exit @", BuySortColumn.ExitPrice, "Modeled gross Market Board exit price or guaranteed vendor payout.");
+        SortableHeader(6, "Profit", BuySortColumn.PotentialProfit, "Modeled profit on the new acquisition only.");
+        SortableHeader(7, "ROI", BuySortColumn.Roi, "Modeled profit divided by acquisition cost.");
+        SortableHeader(8, "Liquidate", BuySortColumn.Liquidation, "Estimated time to liquidate the resulting position.");
+        SortableHeader(9, "Confidence", BuySortColumn.Confidence, "Evidence confidence from market history and exit modeling.");
+        SortableHeader(10, "Tracking", BuySortColumn.Tracking, "Whether Should I Tycoon? has recorded that you actually bought this item/listing. Exact Market Board listing-ID matches get a check mark.");
     }
 
-    private void DrawBuyOpportunityRow(BuyOpportunity row)
+    private void DrawBuyLaneRow(BuyOpportunity row)
     {
+        var tracking = GetBuyTracking(row);
         ImGui.TableNextRow();
         ImGui.TableSetColumnIndex(0);
-        var ratingText = $"{Stars(row.Stars)} {row.OpportunityScore:0}";
-        if (ImGui.Selectable($"{ratingText}##buy-{row.Item.ItemId}-{row.IsHq}-{row.Kind}-{row.AcquisitionCost}", false, ImGuiSelectableFlags.SpanAllColumns))
+        if (ImGui.Selectable($"{Stars(row.Stars)} {row.OpportunityScore:0}##buy-{row.Item.ItemId}-{row.IsHq}-{row.Kind}-{row.AcquisitionCost}", false, ImGuiSelectableFlags.SpanAllColumns))
         {
             selectedBuyOpportunity = row;
             buyDetailsOpen = true;
         }
-        Tooltip($"Click anywhere on this row for details.\nConfidence: {row.Confidence:P0}\nRecent sales: {row.SalesSampleCount:N0}\nVelocity: {row.UnitsPerDay:0.##}/day");
+        Tooltip($"Click for full analysis.\nConfidence: {row.Confidence:P0}\nRecent sales: {row.SalesSampleCount:N0}\nVelocity: {row.UnitsPerDay:0.##}/day");
 
-                ImGui.TableSetColumnIndex(1);
+        ImGui.TableSetColumnIndex(1);
         ImGui.TextUnformatted(row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty));
         ItemNameContextMenu($"##copy-buy-name-{row.Item.ItemId}-{row.IsHq}-{row.Kind}-{row.AcquisitionCost}", row.Item.Name);
         ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted(row.StrategyLabel);
         ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted(row.AcquireQuantity.ToString("N0"));
         ImGui.TableSetColumnIndex(4); ImGui.TextUnformatted(Gil(row.AcquisitionCost));
         ImGui.TableSetColumnIndex(5); ImGui.TextUnformatted(row.SuggestedExitUnitPrice is { } exit ? $"{exit:N0}g" : "—");
-        ImGui.TableSetColumnIndex(6); ImGui.TextUnformatted(row.SuggestedExitStackSize.ToString("N0"));
-        ImGui.TableSetColumnIndex(7); ImGui.TextUnformatted(Gil(row.PotentialProfit));
-        ImGui.TableSetColumnIndex(8); ImGui.TextUnformatted(Gil(row.RiskAdjustedProfit));
-        ImGui.TableSetColumnIndex(9); ImGui.TextUnformatted(Percent(row.Roi));
-        ImGui.TableSetColumnIndex(10); ImGui.TextUnformatted(LiveStateLabel(GetBuyLiveState(row)));
-        ImGui.TableSetColumnIndex(11); ImGui.TextUnformatted(Days(row.EstimatedLiquidationDays));
+        ImGui.TableSetColumnIndex(6); ImGui.TextUnformatted(Gil(row.PotentialProfit));
+        ImGui.TableSetColumnIndex(7); ImGui.TextUnformatted(Percent(row.Roi));
+        ImGui.TableSetColumnIndex(8); ImGui.TextUnformatted(Days(row.EstimatedLiquidationDays));
+        ImGui.TableSetColumnIndex(9); ImGui.TextUnformatted(row.Confidence.ToString("P0"));
+        ImGui.TableSetColumnIndex(10); ImGui.TextUnformatted(tracking.Label);
+        if (ImGui.IsItemHovered() && tracking.IsBought)
+            ImGui.SetTooltip(tracking.ExactListingMatch
+                ? $"Should I Tycoon? recorded {tracking.Quantity:N0} unit(s) from the exact listing ID in this recommendation."
+                : $"Should I Tycoon? has {tracking.Quantity:N0} tracked unit(s) of this item from this acquisition lane.");
+    }
+
+    private BuyTrackingSummary GetBuyTracking(BuyOpportunity opportunity)
+    {
+        if (!Plugin.PlayerState.IsLoaded || Plugin.PlayerState.ContentId == 0)
+            return new BuyTrackingSummary(false, 0, null, false);
+
+        var purchases = plugin.TraderStore.GetPurchases(Plugin.PlayerState.ContentId)
+            .Where(x => x.ItemId == opportunity.Item.ItemId && x.IsHq == opportunity.IsHq)
+            .ToList();
+        if (opportunity.Kind == BuyOpportunityKind.VendorToMarket)
+        {
+            var vendor = purchases
+                .Where(x => x.SourceKind == PurchaseSourceKind.VendorManual)
+                .OrderByDescending(x => x.PurchasedAtUtc)
+                .ToList();
+            return vendor.Count == 0
+                ? new BuyTrackingSummary(false, 0, null, false)
+                : new BuyTrackingSummary(true, vendor.Sum(x => x.Quantity), vendor.Max(x => x.PurchasedAtUtc), false);
+        }
+
+        var market = purchases.Where(x => x.SourceKind == PurchaseSourceKind.MarketBoard).ToList();
+        if (market.Count == 0)
+            return new BuyTrackingSummary(false, 0, null, false);
+
+        var listingIds = opportunity.AcquisitionLots.Where(x => x.ListingId != 0).Select(x => x.ListingId).ToHashSet();
+        var exact = listingIds.Count == 0 ? new List<PersonalPurchase>() : market.Where(x => x.ListingId != 0 && listingIds.Contains(x.ListingId)).ToList();
+        if (exact.Count > 0)
+            return new BuyTrackingSummary(true, exact.Sum(x => x.Quantity), exact.Max(x => x.PurchasedAtUtc), true);
+
+        // Keep item-level history visible even when Universalis did not expose a stable listing ID.
+        var recent = market.Where(x => x.PurchasedAtUtc >= opportunity.AnalysedAtUtc.AddHours(-1)).ToList();
+        return recent.Count == 0
+            ? new BuyTrackingSummary(false, 0, null, false)
+            : new BuyTrackingSummary(true, recent.Sum(x => x.Quantity), recent.Max(x => x.PurchasedAtUtc), false);
     }
 
     private List<BuyOpportunity> SortBuyRows(IEnumerable<BuyOpportunity> source)
     {
         IOrderedEnumerable<BuyOpportunity> ordered = buySortColumn switch
         {
-            BuySortColumn.Item => buySortAscending
-                ? source.OrderBy(x => x.Item.Name, StringComparer.CurrentCultureIgnoreCase)
-                : source.OrderByDescending(x => x.Item.Name, StringComparer.CurrentCultureIgnoreCase),
-            BuySortColumn.Strategy => buySortAscending
-                ? source.OrderBy(x => x.StrategyLabel, StringComparer.CurrentCultureIgnoreCase)
-                : source.OrderByDescending(x => x.StrategyLabel, StringComparer.CurrentCultureIgnoreCase),
+            BuySortColumn.Item => buySortAscending ? source.OrderBy(x => x.Item.Name, StringComparer.CurrentCultureIgnoreCase) : source.OrderByDescending(x => x.Item.Name, StringComparer.CurrentCultureIgnoreCase),
+            BuySortColumn.Strategy => buySortAscending ? source.OrderBy(x => x.StrategyLabel, StringComparer.CurrentCultureIgnoreCase) : source.OrderByDescending(x => x.StrategyLabel, StringComparer.CurrentCultureIgnoreCase),
             BuySortColumn.BuyQuantity => buySortAscending ? source.OrderBy(x => x.AcquireQuantity) : source.OrderByDescending(x => x.AcquireQuantity),
             BuySortColumn.Cost => buySortAscending ? source.OrderBy(x => x.AcquisitionCost) : source.OrderByDescending(x => x.AcquisitionCost),
             BuySortColumn.ExitPrice => buySortAscending ? source.OrderBy(x => x.SuggestedExitUnitPrice ?? uint.MaxValue) : source.OrderByDescending(x => x.SuggestedExitUnitPrice ?? 0),
-            BuySortColumn.StackSize => buySortAscending ? source.OrderBy(x => x.SuggestedExitStackSize) : source.OrderByDescending(x => x.SuggestedExitStackSize),
             BuySortColumn.PotentialProfit => buySortAscending ? source.OrderBy(x => x.PotentialProfit) : source.OrderByDescending(x => x.PotentialProfit),
-            BuySortColumn.RiskAdjustedProfit => buySortAscending ? source.OrderBy(x => x.RiskAdjustedProfit) : source.OrderByDescending(x => x.RiskAdjustedProfit),
             BuySortColumn.Roi => buySortAscending ? source.OrderBy(x => x.Roi) : source.OrderByDescending(x => x.Roi),
             BuySortColumn.Liquidation => buySortAscending ? source.OrderBy(x => x.EstimatedLiquidationDays ?? double.MaxValue) : source.OrderByDescending(x => x.EstimatedLiquidationDays ?? double.MinValue),
+            BuySortColumn.Confidence => buySortAscending ? source.OrderBy(x => x.Confidence) : source.OrderByDescending(x => x.Confidence),
+            BuySortColumn.Tracking => buySortAscending ? source.OrderBy(x => GetBuyTracking(x).IsBought) : source.OrderByDescending(x => GetBuyTracking(x).IsBought),
             _ => buySortAscending ? source.OrderBy(x => x.OpportunityScore) : source.OrderByDescending(x => x.OpportunityScore),
         };
-
-        return ordered
-            .ThenByDescending(x => x.OpportunityScore)
-            .ThenByDescending(x => x.RiskAdjustedProfit)
-            .ToList();
+        return ordered.ThenByDescending(x => x.OpportunityScore).ThenByDescending(x => x.PotentialProfit).ToList();
     }
 
     private void SortableHeader(int column, string label, BuySortColumn sortColumn, string explanation)
@@ -565,8 +550,7 @@ public sealed partial class SuiteWindow
         var suffix = buySortColumn == sortColumn ? (buySortAscending ? " ▲" : " ▼") : string.Empty;
         if (ImGui.Selectable($"{label}{suffix}##buy-header-{sortColumn}"))
         {
-            if (buySortColumn == sortColumn)
-                buySortAscending = !buySortAscending;
+            if (buySortColumn == sortColumn) buySortAscending = !buySortAscending;
             else
             {
                 buySortColumn = sortColumn;
@@ -576,71 +560,52 @@ public sealed partial class SuiteWindow
         Tooltip(explanation + "\nClick to sort; click again to reverse direction.");
     }
 
-    private static void HeaderCell(int column, string label, string explanation)
-    {
-        ImGui.TableSetColumnIndex(column);
-        ImGui.TextDisabled(label);
-        Tooltip(explanation);
-    }
-
     private void DrawBuyDetailPage(BuyOpportunity opportunity)
     {
-        if (ImGui.Button("← BACK TO OPPORTUNITIES"))
+        if (ImGui.Button("← BACK TO FINDINGS"))
         {
             buyDetailsOpen = false;
             return;
         }
-        Tooltip("Return to the current scan results without discarding the scan or portfolio.");
-
         ImGui.SameLine();
         ImGui.TextDisabled($"Analysed {FormatBuyAge(DateTimeOffset.UtcNow - opportunity.AnalysedAtUtc)} ago");
         ImGui.Separator();
 
+        var tracking = GetBuyTracking(opportunity);
         ImGui.TextUnformatted($"{opportunity.Item.Name}{(opportunity.IsHq ? " [HQ]" : string.Empty)}");
         ItemNameContextMenu($"##copy-detail-name-{opportunity.Item.ItemId}-{opportunity.IsHq}", opportunity.Item.Name);
-        ImGui.TextDisabled($"Market world: {plugin.Catalog.GetWorldName(opportunity.WorldId)} (world ID {opportunity.WorldId})");
-        ImGui.TextUnformatted($"{Stars(opportunity.Stars)}  {opportunity.OpportunityScore:0.0}/100  ·  {opportunity.StrategyLabel}");
-        ImGui.TextWrapped($"Acquire {opportunity.AcquireQuantity:N0} new unit(s) for about {opportunity.AcquisitionCost:N0}g. The modeled exit targets {opportunity.SuggestedExitStackSize:N0}-unit listing(s) around {(opportunity.SuggestedExitUnitPrice is { } p ? p.ToString("N0") + "g/unit" : "the calculated exit value")}.");
+        ImGui.TextDisabled($"{plugin.Catalog.GetWorldName(opportunity.WorldId)} • {opportunity.StrategyLabel}");
+        ImGui.TextUnformatted($"{Stars(opportunity.Stars)}  {opportunity.OpportunityScore:0.0}/100  ·  Confidence {opportunity.Confidence:P0}");
+        ImGui.TextWrapped($"Acquire {opportunity.AcquireQuantity:N0} new unit(s) for about {opportunity.AcquisitionCost:N0}g. Modeled exit: {opportunity.SuggestedExitStackSize:N0}-unit listing(s) around {(opportunity.SuggestedExitUnitPrice is { } p ? p.ToString("N0") + "g/unit" : "the calculated exit value")}.");
+        ImGui.TextDisabled($"Tracking: {tracking.Label}{(tracking.LastPurchasedAtUtc is { } bought ? $" • last recorded {bought.ToLocalTime():yyyy-MM-dd HH:mm}" : string.Empty)}");
+
+        if (opportunity.Kind == BuyOpportunityKind.VendorToMarket)
+        {
+            ImGui.Spacing();
+            if (ImGui.Button("RECORD THIS VENDOR BUY IN TYCOON"))
+                PrepareVendorPurchaseFromOpportunity(opportunity);
+            Tooltip("Prefill Tycoon's vendor purchase form with this exact opportunity. You still confirm the real quantity/cost yourself; Should I? never invents a vendor purchase.");
+        }
 
         ImGui.Spacing();
         ImGui.TextUnformatted("Trade overview");
         if (ImGui.BeginTable("##buy-detail-overview", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.SizingStretchSame))
         {
             ImGui.TableNextRow();
-            MetricCell(0, "Rating", $"{Stars(opportunity.Stars)} {opportunity.OpportunityScore:0.0}", "The star band is a broad human-readable rating. The 0–100 value is the stricter score used for ranking opportunities.");
-            MetricCell(1, "Confidence", opportunity.Confidence.ToString("P0"), "Evidence confidence inherited from the exit model. Lower confidence reduces risk-adjusted profit and the opportunity score.");
-            MetricCell(2, "Potential profit", Gil(opportunity.PotentialProfit), "Modeled profit on only the new acquisition if the recommended exit succeeds. Existing owned stock is not counted as trade profit.");
-            MetricCell(3, "Risk-adjusted profit", Gil(opportunity.RiskAdjustedProfit), "Potential profit discounted for evidence quality, expected liquidation speed and market stability. This is not a guarantee or literal probability-weighted EV.");
-
+            MetricCell(0, "Potential profit", Gil(opportunity.PotentialProfit), "Modeled profit on the new acquisition if the exit succeeds.");
+            MetricCell(1, "ROI", Percent(opportunity.Roi), "Potential profit divided by acquisition cost.");
+            MetricCell(2, "Investment", Gil(opportunity.AcquisitionCost), "Total modeled acquisition cost.");
+            MetricCell(3, "Average buy", $"{opportunity.AverageAcquisitionUnitCost:N0}g/unit", "Average modeled acquisition cost per unit.");
             ImGui.TableNextRow();
-            MetricCell(0, "ROI", Percent(opportunity.Roi), "Potential profit divided by total acquisition cost.");
-            MetricCell(1, "Investment", Gil(opportunity.AcquisitionCost), "Total cost of the recommended new acquisition package.");
-            MetricCell(2, "Average buy", $"{opportunity.AverageAcquisitionUnitCost:N0}g/unit", "Average acquisition cost per unit across the package, including reported Market Board buyer tax where present.");
-            MetricCell(3, "Max suggested buy", opportunity.MaximumRecommendedBuyPrice is { } max ? $"{max:N0}g/unit" : "—", "Approximate highest pre-tax unit price that still satisfies your configured minimum ROI against the modeled net exit.");
-
+            MetricCell(0, "First sale", Days(opportunity.EstimatedFirstSaleDays), "Estimated time before the first modeled sale.");
+            MetricCell(1, "Full liquidation", Days(opportunity.EstimatedLiquidationDays), "Estimated time to sell the full resulting position.");
+            MetricCell(2, "Units/day", $"{opportunity.UnitsPerDay:0.##}", "Recent market velocity used by the model.");
+            MetricCell(3, "Sale samples", opportunity.SalesSampleCount.ToString("N0"), "Recent sale records available to the detailed Universalis analysis.");
             ImGui.TableNextRow();
-            MetricCell(0, "First sale", Days(opportunity.EstimatedFirstSaleDays), "Estimated wait before the first modeled sale, including queue position where the exit model can estimate it.");
-            MetricCell(1, "Full liquidation", Days(opportunity.EstimatedLiquidationDays), "Estimated time to sell the full resulting position, not just the newly purchased units.");
-            MetricCell(2, "Units/day", $"{opportunity.UnitsPerDay:0.##}", "Recent estimated unit velocity used by the exit model.");
-            MetricCell(3, "Recent sale samples", opportunity.SalesSampleCount.ToString("N0"), "Number of recent sale records available to the deep exit analysis.");
-
-            ImGui.TableNextRow();
-            MetricCell(0, "Already owned", opportunity.ExistingQuantity.ToString("N0"), "Known units you already own. They influence stack and liquidation planning but are not counted as acquisition profit.");
-            MetricCell(1, "Resulting position", (opportunity.ExistingQuantity + opportunity.AcquireQuantity).ToString("N0"), "Known existing quantity plus the recommended new acquisition.");
-            MetricCell(2, "Exit listings", opportunity.SuggestedExitListingCount.ToString("N0"), "Estimated number of Market Board listings needed for the modeled resulting position at the suggested stack size.");
-            MetricCell(3, "Market freshness", opportunity.MarketFreshnessUtc is { } fresh ? FormatBuyAge(DateTimeOffset.UtcNow - fresh) + " ago" : "unknown", "Age of the listing snapshot used by the scanner. Use LIVE VERIFY before spending gil on a listing-sensitive opportunity.");
-            ImGui.EndTable();
-        }
-
-        ImGui.Spacing();
-        ImGui.TextUnformatted("Exit plan");
-        if (ImGui.BeginTable("##buy-detail-exit", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.SizingStretchSame))
-        {
-            ImGui.TableNextRow();
-            MetricCell(0, "Gross exit price", opportunity.SuggestedExitUnitPrice is { } gross ? $"{gross:N0}g/unit" : "—", "Suggested visible Market Board price per unit before seller tax, or the vendor payout for a guaranteed vendor exit.");
-            MetricCell(1, "Net exit value", opportunity.NetExitUnitPrice is { } net ? $"{net:N0}g/unit" : "—", "Modeled amount retained per unit after the seller-tax assumption. Market → Vendor has no seller tax and uses the guaranteed vendor payout.");
-            MetricCell(2, "Recommended stack", opportunity.SuggestedExitStackSize.ToString("N0"), "Recommended units per listing based on historical buyer quantities, convenience effects and the resulting position.");
-            MetricCell(3, "Capital efficiency", opportunity.EstimatedLiquidationDays is > 0 ? $"{opportunity.RiskAdjustedProfit / Math.Max(0.25, opportunity.EstimatedLiquidationDays.Value):N0}g risk-adj./day" : "immediate", "Risk-adjusted profit divided by modeled liquidation time. Useful for comparing how quickly different trades recycle capital.");
+            MetricCell(0, "Already owned", opportunity.ExistingQuantity.ToString("N0"), "Known stock at analysis time. It affects liquidation planning but not acquisition profit.");
+            MetricCell(1, "Resulting position", (opportunity.ExistingQuantity + opportunity.AcquireQuantity).ToString("N0"), "Known stock plus the modeled acquisition.");
+            MetricCell(2, "Recommended stack", opportunity.SuggestedExitStackSize.ToString("N0"), "Recommended units per exit listing.");
+            MetricCell(3, "Market freshness", opportunity.MarketFreshnessUtc is { } fresh ? FormatBuyAge(DateTimeOffset.UtcNow - fresh) + " ago" : "unknown", "Age of the listing snapshot used for this finding.");
             ImGui.EndTable();
         }
 
@@ -652,18 +617,12 @@ public sealed partial class SuiteWindow
         {
             if (ImGui.BeginTable("##buy-acquisition-lots", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable))
             {
-                ImGui.TableSetupColumn("Listing ID", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Quantity", ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Unit price", ImGuiTableColumnFlags.WidthFixed, 95 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Buyer tax", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Total cost", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
-                ImGui.TableNextRow();
-                HeaderCell(0, "Listing ID", "Exact Universalis listing identifier used by LIVE VERIFY when available.");
-                HeaderCell(1, "Quantity", "Whole listing stack quantity. FFXIV Market Board purchases take the complete listing stack.");
-                HeaderCell(2, "Unit price", "Seller's listed per-unit price before buyer-side tax.");
-                HeaderCell(3, "Buyer tax", "Buyer tax reported for this listing by Universalis and included in total acquisition cost.");
-                HeaderCell(4, "Total cost", "Listing price × quantity plus the reported buyer tax.");
-
+                ImGui.TableSetupColumn("Listing ID");
+                ImGui.TableSetupColumn("Quantity");
+                ImGui.TableSetupColumn("Unit price");
+                ImGui.TableSetupColumn("Buyer tax");
+                ImGui.TableSetupColumn("Total cost");
+                ImGui.TableHeadersRow();
                 foreach (var lot in opportunity.AcquisitionLots)
                 {
                     ImGui.TableNextRow();
@@ -678,20 +637,12 @@ public sealed partial class SuiteWindow
         }
         else if (opportunity.Kind == BuyOpportunityKind.VendorToMarket)
         {
-            ImGui.TextWrapped($"Source the recommended {opportunity.AcquireQuantity:N0} unit(s) from a verified normal gil NPC vendor at about {opportunity.AverageAcquisitionUnitCost:N0}g/unit. The scanner demand-caps vendor quantity instead of assuming you should buy a full stack.");
+            ImGui.TextWrapped($"Source the recommended {opportunity.AcquireQuantity:N0} unit(s) from a normal gil NPC vendor at about {opportunity.AverageAcquisitionUnitCost:N0}g/unit.");
         }
         else
         {
-            ImGui.TextDisabled("This opportunity does not require a Market Board acquisition package.");
+            ImGui.TextDisabled("This finding does not require a Market Board acquisition package.");
         }
-
-        ImGui.Spacing();
-        ImGui.TextUnformatted("Why the score looks like this");
-        ImGui.TextWrapped("For normal market exits, the 0–100 Buy score weights risk-adjusted trade quality across ROI (22%), absolute profit (20%), liquidity/holding time (18%), acquisition price advantage (12%), demand evidence (10%), stability (7%), confidence (6%) and execution friction (5%). The star rating is then derived from that stricter score. Guaranteed Market → Vendor opportunities use a special guaranteed-exit score instead.");
-        ImGui.BulletText($"ROI input: {Percent(opportunity.Roi)}; potential profit: {Gil(opportunity.PotentialProfit)}.");
-        ImGui.BulletText($"Liquidity input: {Days(opportunity.EstimatedLiquidationDays)} full liquidation versus your configured {plugin.Configuration.BuyMaximumHoldingDays:0.#}-day maximum.");
-        ImGui.BulletText($"Evidence input: {opportunity.SalesSampleCount:N0} recent sale sample(s), {opportunity.UnitsPerDay:0.##} unit(s)/day, {opportunity.Confidence:P0} confidence.");
-        ImGui.BulletText($"Execution input: {Math.Max(1, opportunity.AcquisitionLots.Count):N0} acquisition action(s) and about {Math.Max(1, opportunity.SuggestedExitListingCount):N0} exit listing(s).");
 
         ImGui.Spacing();
         ImGui.TextUnformatted("Model reasoning & cautions");
@@ -699,7 +650,7 @@ public sealed partial class SuiteWindow
             ImGui.BulletText(note);
 
         ImGui.Spacing();
-        ImGui.TextDisabled("Should I Buy? never purchases automatically. Verify listing-sensitive deals live, execute purchases yourself on the normal Market Board, and Should I Tycoon? records the successful server-confirmed purchase for later P&L analysis.");
+        ImGui.TextDisabled("Should I Buy? never purchases automatically. Execute the trade yourself through normal game UI; confirmed Market Board purchases are captured by Tycoon, while vendor acquisitions are recorded only when you explicitly confirm them.");
     }
 
     private static void MetricCell(int column, string label, string value, string explanation)
@@ -718,35 +669,9 @@ public sealed partial class SuiteWindow
 
     private static string FormatBuyAge(TimeSpan age)
     {
-        if (age.TotalSeconds < 60)
-            return $"{Math.Max(0, age.TotalSeconds):0}s";
-        if (age.TotalMinutes < 60)
-            return $"{age.TotalMinutes:0.#}m";
-        if (age.TotalHours < 24)
-            return $"{age.TotalHours:0.#}h";
+        if (age.TotalSeconds < 60) return $"{Math.Max(0, age.TotalSeconds):0}s";
+        if (age.TotalMinutes < 60) return $"{age.TotalMinutes:0.#}m";
+        if (age.TotalHours < 24) return $"{age.TotalHours:0.#}h";
         return $"{age.TotalDays:0.#}d";
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
