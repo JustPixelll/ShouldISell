@@ -1,0 +1,43 @@
+name: Enumerate remaining private references
+
+on:
+  push:
+    branches: [ feature/private-data-cleanup-submit ]
+    paths: [ .github/workflows/list-private-refs.yml ]
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Scan repository
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          for helper in [
+              Path('.github/workflows/cleanup-private-integration.yml'),
+              Path('.github/workflows/final-private-scrub.yml'),
+              Path('.github/workflows/list-private-refs.yml'),
+          ]:
+              if helper.exists(): helper.unlink()
+          pattern = re.compile(r'deep\s*mine|deepmine|shouldideepmine', re.I)
+          hits=[]
+          for f in Path('.').rglob('*'):
+              if not f.is_file() or '.git' in f.parts: continue
+              try: text=f.read_text()
+              except Exception: continue
+              for n,line in enumerate(text.splitlines(),1):
+                  if pattern.search(line) or pattern.search(str(f)):
+                      hits.append(f'{f}:{n}:{line}')
+          Path('private-ref-hits.txt').write_text('\n'.join(hits) + ('\n' if hits else ''))
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "List remaining private references"
+          git push origin feature/private-data-cleanup-submit
