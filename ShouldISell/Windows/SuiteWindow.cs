@@ -9,12 +9,15 @@ public enum ShouldIModule
 {
     Sell,
     Buy,
+    Craft,
+    Gather,
+    Opportunities,
     Tycoon,
 }
 
 /// <summary>
-/// Product shell for the Should I? suite. The proven Should I Sell? window is embedded intact inside
-/// the Sell module while Buy and Tycoon share the same market/inventory/personal-sale services.
+/// Product shell for the Should I? suite. Sell, Buy, Craft, Gather, Opportunities and Tycoon share
+/// the same market, inventory and personal-trading services so the suite can reason across actions.
 /// </summary>
 public sealed partial class SuiteWindow : Window, IDisposable
 {
@@ -56,7 +59,7 @@ public sealed partial class SuiteWindow : Window, IDisposable
 
         ImGui.TextUnformatted("Should I?");
         ImGui.SameLine();
-        ImGui.TextDisabled("One market brain: sell better, buy better, learn from your own trades.");
+        ImGui.TextDisabled("One economy brain: buy, craft, gather, sell, then learn from what actually happened.");
         ImGui.Separator();
 
         if (!ImGui.BeginTabBar("##should-i-modules"))
@@ -64,6 +67,9 @@ public sealed partial class SuiteWindow : Window, IDisposable
 
         DrawModuleTab(ShouldIModule.Sell, "Should I Sell?", sellWindow.Draw);
         DrawModuleTab(ShouldIModule.Buy, "Should I Buy?", DrawBuyModule);
+        DrawModuleTab(ShouldIModule.Craft, "Should I Craft?", DrawCraftModule);
+        DrawModuleTab(ShouldIModule.Gather, "Should I Gather?", DrawGatherModule);
+        DrawModuleTab(ShouldIModule.Opportunities, "Opportunities", DrawOpportunitiesModule);
         DrawModuleTab(ShouldIModule.Tycoon, "Should I Tycoon?", DrawTycoonModule);
         ImGui.EndTabBar();
 
