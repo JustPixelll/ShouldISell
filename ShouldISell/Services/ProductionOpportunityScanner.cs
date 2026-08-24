@@ -140,7 +140,7 @@ public sealed class ProductionOpportunityScanner : IDisposable
                 gather.EstimatedGilPerActiveMinute,
                 null,
                 $"Gather {gather.Item.Name} as {gather.GathererName}.",
-                $"Modeled {gather.EstimatedGilPerActiveMinuteLow:N0}–{gather.EstimatedGilPerActiveMinuteHigh:N0}g per active minute; market velocity {gather.UnitsPerDay:0.##}/day.",
+                $"Modeled ~{gather.EstimatedGilPerActiveMinute:N0}g per active minute from the current generic baseline; market velocity {gather.UnitsPerDay:0.##}/day.",
                 gather.AnalysedAtUtc));
         }
 
@@ -609,12 +609,13 @@ public sealed class ProductionOpportunityScanner : IDisposable
         // v1 intentionally models an interval rather than pretending exact gathering throughput.
         // Personal observed-session telemetry can replace this generic baseline later.
         var baseRate = source.IsHidden ? 7.5 : 10.5;
-        if (source.IsTimed)
-            baseRate *= 1.08;
         var levelHeadroom = Math.Max(0, source.PlayerLevel - source.RequiredLevel);
         baseRate *= 1.0 + Math.Min(0.20, levelHeadroom / 500.0);
-        var lowRate = baseRate * 0.65;
-        var highRate = baseRate * 1.35;
+        // Keep the legacy fields equal to the baseline until a real range can be derived
+        // from node topology or observed personal sessions. Arbitrary uncertainty bands
+        // belong in confidence, not in fake numerical precision.
+        var lowRate = baseRate;
+        var highRate = baseRate;
         var netUnitValue = salePrice * (1.0 - ScoreCalculator.MarketSellerTaxRate);
         var gilPerMinute = netUnitValue * baseRate;
         var gilPerMinuteLow = netUnitValue * lowRate;
@@ -631,8 +632,8 @@ public sealed class ProductionOpportunityScanner : IDisposable
 
         var notes = new List<string>
         {
-            $"Generic active-yield model: {lowRate:0.0}–{highRate:0.0} item(s)/active minute; midpoint {baseRate:0.0}.",
-            "Travel, GP rotation, gear, node-to-node movement and player execution are not yet learned personally, so the effort estimate is a range.",
+            $"Generic active-yield baseline: {baseRate:0.0} item(s)/active minute. A numerical range is withheld until node topology or personal telemetry can support it.",
+            "Node-to-node movement, GP rotation, gear and player execution are not yet learned personally; that uncertainty is represented by confidence.",
             "Gil/minute uses the modeled active gathering time only. Waiting for a timed node is shown as availability friction, not charged as active play time.",
         };
         if (source.IsTimed)
