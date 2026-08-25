@@ -9,7 +9,8 @@ namespace ShouldISell.Services;
 /// <summary>
 /// Passive bridge for optional local market-data providers. Should I? never requests game-server
 /// data through this service; it only imports already-published snapshots and exposes safe local
-/// item-ID scopes. The provider is optional and anonymous from Should I?'s point of view.
+/// item-ID scopes / read-only candidate hints. The provider is optional and anonymous from
+/// Should I?'s point of view.
 /// </summary>
 public sealed class ExternalMarketDataBridge : IDisposable
 {
@@ -17,35 +18,53 @@ public sealed class ExternalMarketDataBridge : IDisposable
     public const string GetSnapshotsChannel = "ShouldI.ExternalMarketData.GetSnapshots.v1";
     public const string GetOwnedItemIdsChannel = "ShouldI.ExternalMarketData.GetOwnedMarketableItemIds.v1";
     public const string GetListingItemIdsChannel = "ShouldI.ExternalMarketData.GetCurrentListingItemIds.v1";
+    public const string GetSmartCandidatesChannel = "ShouldI.ExternalMarketData.GetSmartCandidates.v1";
 
     private readonly LocalStore store;
     private readonly InventoryScanner inventory;
     private readonly IPlayerState playerState;
+    private readonly MarketDataCoordinator coordinator;
+    private readonly BuyOpportunityScanner buyScanner;
+    private readonly ProductionOpportunityScanner productionScanner;
     private readonly IPluginLog log;
     private readonly ICallGateSubscriber<string, object> snapshotSubscriber;
     private readonly ICallGateSubscriber<string> snapshotsSubscriber;
     private readonly ICallGateProvider<string> ownedIdsProvider;
     private readonly ICallGateProvider<string> listingIdsProvider;
+    private readonly ICallGateProvider<string> smartCandidatesProvider;
     private readonly Action<string> snapshotHandler;
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public ExternalMarketDataBridge(IDalamudPluginInterface pluginInterface, LocalStore store, InventoryScanner inventory, IPlayerState playerState, IPluginLog log)
+    public ExternalMarketDataBridge(
+        IDalamudPluginInterface pluginInterface,
+        LocalStore store,
+        InventoryScanner inventory,
+        IPlayerState playerState,
+        MarketDataCoordinator coordinator,
+        BuyOpportunityScanner buyScanner,
+        ProductionOpportunityScanner productionScanner,
+        IPluginLog log)
     {
         this.store = store;
         this.inventory = inventory;
         this.playerState = playerState;
+        this.coordinator = coordinator;
+        this.buyScanner = buyScanner;
+        this.productionScanner = productionScanner;
         this.log = log;
 
         snapshotSubscriber = pluginInterface.GetIpcSubscriber<string, object>(SnapshotUpdatedChannel);
         snapshotsSubscriber = pluginInterface.GetIpcSubscriber<string>(GetSnapshotsChannel);
         ownedIdsProvider = pluginInterface.GetIpcProvider<string>(GetOwnedItemIdsChannel);
         listingIdsProvider = pluginInterface.GetIpcProvider<string>(GetListingItemIdsChannel);
+        smartCandidatesProvider = pluginInterface.GetIpcProvider<string>(GetSmartCandidatesChannel);
 
         snapshotHandler = ImportSnapshotJson;
         snapshotSubscriber.Subscribe(snapshotHandler);
         ownedIdsProvider.RegisterFunc(GetOwnedItemIdsJson);
         listingIdsProvider.RegisterFunc(GetListingItemIdsJson);
+        smartCandidatesProvider.RegisterFunc(GetSmartCandidatesJson);
         TrySynchronizeCachedSnapshots();
     }
 
@@ -58,6 +77,7 @@ public sealed class ExternalMarketDataBridge : IDisposable
         snapshotSubscriber.Unsubscribe(snapshotHandler);
         ownedIdsProvider.UnregisterFunc();
         listingIdsProvider.UnregisterFunc();
+        smartCandidatesProvider.UnregisterFunc();
     }
 
     public void TrySynchronizeCachedSnapshots()
@@ -124,6 +144,150 @@ public sealed class ExternalMarketDataBridge : IDisposable
         }
     }
 
+    private string GetSmartCandidatesJson()
+    {
+        if (!playerState.IsLoaded)
+            return "[]";
+
+        try
+        {
+            var output = new List<SmartCandidateDto>();
+
+            var ownListings = coordinator.GetRatedOwnListings();
+            for (var i = 0; i < ownListings.Count; i++)
+            {
+                var row = ownListings[i];
+                output.Add(new SmartCandidateDto(
+                    "Sell",
+                    row.Item.ItemId,
+                    row.Item.Name,
+                    Math.Max(900, 1000 - i),
+                    "Current listing: fresh competition can directly change repricing guidance.",
+                    row.Rating?.OpportunityScore,
+                    row.Rating?.Confidence,
+                    row.Rating?.ListingFreshnessUtc));
+            }
+
+            var owned = coordinator.GetRatedOwnedItems()
+                .Where(x => x.Rating is not null)
+                .OrderByDescending(x => x.Rating!.Stars)
+                .ThenByDescending(x => x.Rating!.OpportunityScore)
+                .ThenByDescending(x => (x.Rating!.SuggestedPrice ?? x.Rating.RealisticCurrentPrice ?? 0) * (long)Math.Max(1, x.Quantity))
+                .ToList();
+            for (var i = 0; i < owned.Count; i++)
+            {
+                var row = owned[i];
+                output.Add(new SmartCandidateDto(
+                    "Sell",
+                    row.Item.ItemId,
+                    row.Item.Name,
+                    Math.Max(650, 850 - i),
+                    $"Owned item: {row.Rating!.Stars}★ sell candidate with {row.Quantity:N0} unit(s) known.",
+                    row.Rating.OpportunityScore,
+                    row.Rating.Confidence,
+                    row.Rating.ListingFreshnessUtc));
+            }
+
+            var marketBuys = buyScanner.GetMarketOpportunities()
+                .OrderByDescending(x => x.OpportunityScore)
+                .ThenByDescending(x => x.RiskAdjustedProfit)
+                .ToList();
+            for (var i = 0; i < marketBuys.Count; i++)
+            {
+                var row = marketBuys[i];
+                output.Add(new SmartCandidateDto(
+                    "BuyMB",
+                    row.Item.ItemId,
+                    row.Item.Name,
+                    Math.Max(700, 940 - i),
+                    $"Market-board buy candidate: {row.StrategyLabel}, modeled risk-adjusted profit {row.RiskAdjustedProfit:N0}g.",
+                    row.OpportunityScore,
+                    row.Confidence,
+                    row.MarketFreshnessUtc));
+            }
+
+            var vendorBuys = buyScanner.GetVendorOpportunities()
+                .OrderByDescending(x => x.OpportunityScore)
+                .ThenByDescending(x => x.RiskAdjustedProfit)
+                .ToList();
+            for (var i = 0; i < vendorBuys.Count; i++)
+            {
+                var row = vendorBuys[i];
+                output.Add(new SmartCandidateDto(
+                    "BuyVendor",
+                    row.Item.ItemId,
+                    row.Item.Name,
+                    Math.Max(650, 900 - i),
+                    $"Vendor-to-market candidate: native listings can confirm the exit side before buying stock.",
+                    row.OpportunityScore,
+                    row.Confidence,
+                    row.MarketFreshnessUtc));
+            }
+
+            var crafts = productionScanner.GetCraftOpportunities()
+                .OrderByDescending(x => x.OpportunityScore)
+                .ThenByDescending(x => x.EconomicProfit)
+                .ToList();
+            for (var i = 0; i < crafts.Count; i++)
+            {
+                var row = crafts[i];
+                output.Add(new SmartCandidateDto(
+                    "Craft",
+                    row.Item.ItemId,
+                    row.Item.Name,
+                    Math.Max(650, 900 - i),
+                    $"Craft output: modeled economic profit {row.EconomicProfit:N0}g; verify the sell side first.",
+                    row.OpportunityScore,
+                    row.Confidence,
+                    row.LastSaleUtc));
+
+                var majorInputs = row.Ingredients
+                    .Where(x => x.Route == ProductionAcquisitionRoute.MarketBoard)
+                    .OrderByDescending(x => x.EconomicCost)
+                    .Take(3)
+                    .ToList();
+                for (var inputIndex = 0; inputIndex < majorInputs.Count; inputIndex++)
+                {
+                    var input = majorInputs[inputIndex];
+                    output.Add(new SmartCandidateDto(
+                        "Craft",
+                        input.Item.ItemId,
+                        input.Item.Name,
+                        Math.Max(500, 700 - i - inputIndex * 10),
+                        $"Major market-board input for {row.Item.Name}; economic material cost {input.EconomicCost:N0}g.",
+                        row.OpportunityScore,
+                        row.Confidence,
+                        null));
+                }
+            }
+
+            var gathers = productionScanner.GetGatherOpportunities()
+                .OrderByDescending(x => x.OpportunityScore)
+                .ThenByDescending(x => x.EstimatedGilPerActiveMinute)
+                .ToList();
+            for (var i = 0; i < gathers.Count; i++)
+            {
+                var row = gathers[i];
+                output.Add(new SmartCandidateDto(
+                    "Gather",
+                    row.Item.ItemId,
+                    row.Item.Name,
+                    Math.Max(550, 820 - i),
+                    $"Gather candidate: modeled {row.EstimatedGilPerActiveMinute:N0}g per active minute.",
+                    row.OpportunityScore,
+                    row.Confidence,
+                    row.LastSaleUtc));
+            }
+
+            return JsonSerializer.Serialize(output, JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            log.Debug(ex, "Could not expose smart Deep Mine candidate hints.");
+            return "[]";
+        }
+    }
+
     private void ImportSnapshotJson(string json)
     {
         try
@@ -170,6 +334,16 @@ public sealed class ExternalMarketDataBridge : IDisposable
             store.Flush();
         return true;
     }
+
+    private sealed record SmartCandidateDto(
+        string Module,
+        uint ItemId,
+        string ItemName,
+        int Priority,
+        string Reason,
+        double? OpportunityScore,
+        double? Confidence,
+        DateTimeOffset? MarketFreshnessUtc);
 
     private sealed record ExternalSnapshotDto(uint WorldId, uint ItemId, DateTimeOffset? ListingObservedAtUtc, DateTimeOffset? HistoryObservedAtUtc, List<ExternalListingDto> Listings, List<ExternalSaleDto> Sales);
     private sealed record ExternalListingDto(uint PricePerUnit, uint Quantity, bool IsHq, ulong ListingId, ulong RetainerId, string? RetainerName);
