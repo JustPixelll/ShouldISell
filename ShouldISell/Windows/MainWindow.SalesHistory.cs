@@ -96,19 +96,29 @@ public sealed partial class MainWindow
         var detailsOpen = selectedSaleGroup is not null;
         var tableHeight = detailsOpen ? 300 * ImGuiHelpers.GlobalScale : -1;
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY |
-                    ImGuiTableFlags.Resizable;
+                    ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable;
         if (ImGui.BeginTable("personal-sales-groups", 8, flags, new Vector2(0, tableHeight)))
         {
             ImGui.TableSetupScrollFreeze(0, 1);
             ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableSetupColumn("Sales", ImGuiTableColumnFlags.WidthFixed, 58 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Units", ImGuiTableColumnFlags.WidthFixed, 58 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("Net earned", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn("Net earned", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 100 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Net / unit", ImGuiTableColumnFlags.WidthFixed, 88 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Avg sale", ImGuiTableColumnFlags.WidthFixed, 88 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Best sale", ImGuiTableColumnFlags.WidthFixed, 92 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Last sold", ImGuiTableColumnFlags.WidthFixed, 118 * ImGuiHelpers.GlobalScale);
             ImGui.TableHeadersRow();
+
+            groups = TableSort.Apply(groups, ImGui.TableGetSortSpecs(),
+                x => x.Item.Name,
+                x => x.Transactions,
+                x => x.Units,
+                x => x.NetGil,
+                x => x.NetPerUnit,
+                x => x.AverageTransaction,
+                x => x.BestTransaction,
+                x => x.LastSaleUtc);
 
             foreach (var group in groups)
             {
@@ -251,11 +261,11 @@ public sealed partial class MainWindow
         ImGui.TextUnformatted($"{group.Item.Name}{(group.IsHq ? " [HQ]" : "")} — sale history");
         ImGui.TextDisabled($"{group.Transactions:N0} transaction(s) • {group.Units:N0} unit(s) • {(group.NetGil > 0 ? Gil((double)group.NetGil) : "—")} net earned • first captured sale {group.FirstSaleUtc.ToLocalTime():yyyy-MM-dd}");
 
-        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
+        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable;
         if (ImGui.BeginTable("personal-sales-detail", 7, flags, new Vector2(0, 230 * ImGuiHelpers.GlobalScale)))
         {
             ImGui.TableSetupScrollFreeze(0, 1);
-            ImGui.TableSetupColumn("Sold", ImGuiTableColumnFlags.WidthFixed, 125 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn("Sold", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 125 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Net earned", ImGuiTableColumnFlags.WidthFixed, 95 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn("Net / unit", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
@@ -264,7 +274,15 @@ public sealed partial class MainWindow
             ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 115 * ImGuiHelpers.GlobalScale);
             ImGui.TableHeadersRow();
 
-            foreach (var sale in group.Sales)
+            var sortedSales = TableSort.Apply(group.Sales, ImGui.TableGetSortSpecs(),
+                x => x.SoldAtUtc,
+                x => x.Quantity,
+                x => x.NetGil,
+                x => x.Quantity > 0 ? x.NetGil / (double)x.Quantity : 0,
+                x => x.RetainerName,
+                x => x.BuyerName,
+                x => x.Source);
+            foreach (var sale in sortedSales)
             {
                 ImGui.TableNextRow();
                 ImGui.TableNextColumn();

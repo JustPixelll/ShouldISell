@@ -53,7 +53,7 @@ public sealed class BuyOpportunityScanner : IDisposable
 
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(30);
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "2.3.3"));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "2.3.4"));
     }
 
     public bool IsScanning { get; private set; }
@@ -675,7 +675,7 @@ public sealed class BuyOpportunityScanner : IDisposable
             if (listing.TotalCost >= payout)
                 break;
             if (cost + listing.TotalCost > settings.BudgetGil || cost + listing.TotalCost > perItemBudget)
-                break;
+                continue;
 
             cost += listing.TotalCost;
             quantity += checked((int)listing.Listing.Quantity);
@@ -1318,8 +1318,6 @@ public sealed class BuyOpportunityScanner : IDisposable
         public List<MarketSale> Sales { get; } = new();
     }
 }
-
-
 
 
 

@@ -11,6 +11,9 @@ public sealed class LocalStore
     private readonly IPluginLog log;
     private StoreDocument document;
     private bool dirty;
+    private long analysisRevision;
+
+    public long AnalysisRevision => Interlocked.Read(ref analysisRevision);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -38,13 +41,19 @@ public sealed class LocalStore
     {
         lock (gate)
         {
+            var previous = document.InventorySnapshots.FirstOrDefault(x =>
+                x.CharacterContentId == snapshot.CharacterContentId &&
+                x.OwnerKind == snapshot.OwnerKind &&
+                x.OwnerId == snapshot.OwnerId &&
+                x.Container == snapshot.Container);
+            var analysisChanged = previous is null || !InventoryContentsEqual(previous, snapshot);
             document.InventorySnapshots.RemoveAll(x =>
                 x.CharacterContentId == snapshot.CharacterContentId &&
                 x.OwnerKind == snapshot.OwnerKind &&
                 x.OwnerId == snapshot.OwnerId &&
                 x.Container == snapshot.Container);
             document.InventorySnapshots.Add(snapshot);
-            dirty = true;
+            MarkDirtyUnsafe(analysisChanged);
         }
 
         if (flush)
@@ -127,10 +136,11 @@ public sealed class LocalStore
                 }
             }
 
+            var analysisChanged = !ListingContentsEqual(previous, merged);
             document.OwnListings.RemoveAll(x =>
                 x.CharacterContentId == characterContentId && x.RetainerId == retainerId);
             document.OwnListings.AddRange(merged);
-            dirty = true;
+            MarkDirtyUnsafe(analysisChanged);
         }
     }
 
@@ -184,7 +194,7 @@ public sealed class LocalStore
 
             document.PersonalSales.Add(normalized);
             TrimPersonalSalesUnsafe();
-            dirty = true;
+            MarkDirtyUnsafe();
             return true;
         }
     }
@@ -238,7 +248,7 @@ public sealed class LocalStore
             if (changed > 0)
             {
                 TrimPersonalSalesUnsafe();
-                dirty = true;
+                MarkDirtyUnsafe();
             }
         }
 
@@ -335,7 +345,7 @@ public sealed class LocalStore
             snapshot.ListingObservedAtUtc = DateTimeOffset.UtcNow;
             snapshot.UniversalisLastUploadUtc = uploadTime;
             snapshot.CurrentSource = MarketDataSource.Universalis;
-            dirty = true;
+            MarkDirtyUnsafe();
         }
     }
 
@@ -348,7 +358,7 @@ public sealed class LocalStore
             snapshot.HistoryObservedAtUtc = DateTimeOffset.UtcNow;
             if (uploadTime is not null && (snapshot.UniversalisLastUploadUtc is null || uploadTime > snapshot.UniversalisLastUploadUtc))
                 snapshot.UniversalisLastUploadUtc = uploadTime;
-            dirty = true;
+            MarkDirtyUnsafe();
         }
     }
 
@@ -360,7 +370,7 @@ public sealed class LocalStore
             snapshot.Listings.Clear();
             snapshot.ListingObservedAtUtc = at;
             snapshot.CurrentSource = MarketDataSource.LiveGame;
-            dirty = true;
+            MarkDirtyUnsafe();
         }
     }
 
@@ -371,7 +381,7 @@ public sealed class LocalStore
             var snapshot = GetOrCreateUnsafe(worldId, itemId);
             snapshot.Sales = MergeSales(snapshot.Sales, sales);
             snapshot.HistoryObservedAtUtc = at;
-            dirty = true;
+            MarkDirtyUnsafe();
         }
     }
 
@@ -395,7 +405,7 @@ public sealed class LocalStore
                 .ToList();
             snapshot.ListingObservedAtUtc = at;
             snapshot.CurrentSource = MarketDataSource.LiveGame;
-            dirty = true;
+            MarkDirtyUnsafe();
         }
     }
 
@@ -405,8 +415,10 @@ public sealed class LocalStore
         {
             var snapshot = GetOrCreateUnsafe(worldId, itemId);
             if (snapshot.UniversalisLastUploadUtc is null || at > snapshot.UniversalisLastUploadUtc)
+            {
                 snapshot.UniversalisLastUploadUtc = at;
-            dirty = true;
+                MarkDirtyUnsafe();
+            }
         }
     }
 
@@ -435,6 +447,31 @@ public sealed class LocalStore
             lock (gate) dirty = true;
         }
     }
+
+    private void MarkDirtyUnsafe(bool affectsAnalysis = true)
+    {
+        dirty = true;
+        if (affectsAnalysis)
+            Interlocked.Increment(ref analysisRevision);
+    }
+
+    private static bool InventoryContentsEqual(InventoryContainerSnapshot left, InventoryContainerSnapshot right)
+        => left.Items
+            .OrderBy(x => x.Slot)
+            .Select(x => (x.Slot, x.ItemId, x.Quantity, x.IsHq))
+            .SequenceEqual(right.Items
+                .OrderBy(x => x.Slot)
+                .Select(x => (x.Slot, x.ItemId, x.Quantity, x.IsHq)));
+
+    private static bool ListingContentsEqual(
+        IReadOnlyList<OwnMarketListing> left,
+        IReadOnlyList<OwnMarketListing> right)
+        => left
+            .OrderBy(x => x.MarketSlot)
+            .Select(x => (x.MarketSlot, x.ItemId, x.Quantity, x.IsHq, x.UnitPrice, x.RetainerName))
+            .SequenceEqual(right
+                .OrderBy(x => x.MarketSlot)
+                .Select(x => (x.MarketSlot, x.ItemId, x.Quantity, x.IsHq, x.UnitPrice, x.RetainerName)));
 
     private StoreDocument Load()
     {

@@ -85,8 +85,8 @@ public sealed class Plugin : IDalamudPlugin
             ProductionScanner,
             Log);
         ListingAttentionOverlay = new RetainerListingAttentionOverlay(GameGui, PlayerState, Coordinator, Log);
-        PurchaseObserver = new MarketPurchaseObserver(MarketBoard, PlayerState, TraderStore, BuyScanner, Log);
-        TraderAnalyzer = new TraderAnalyzer(PlayerState, TraderStore, Store, Coordinator, Catalog);
+        PurchaseObserver = new MarketPurchaseObserver(MarketBoard, PlayerState, TraderStore, Inventory, BuyScanner, Log);
+        TraderAnalyzer = new TraderAnalyzer(PlayerState, Configuration, TraderStore, Store, Coordinator, Catalog);
         ListingHistory = new ListingHistoryTracker(PluginInterface, PlayerState, Store, Log);
         TycoonInsights = new TycoonInsightService(PlayerState, Store, Catalog, ListingHistory);
 

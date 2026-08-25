@@ -152,6 +152,7 @@ public sealed class ExternalMarketDataBridge : IDisposable
         try
         {
             var output = new List<SmartCandidateDto>();
+            var currentWorldId = playerState.CurrentWorld.RowId;
 
             var ownListings = coordinator.GetRatedOwnListings();
             for (var i = 0; i < ownListings.Count; i++)
@@ -189,6 +190,7 @@ public sealed class ExternalMarketDataBridge : IDisposable
             }
 
             var marketBuys = buyScanner.GetMarketOpportunities()
+                .Where(x => x.WorldId == currentWorldId)
                 .OrderByDescending(x => x.OpportunityScore)
                 .ThenByDescending(x => x.RiskAdjustedProfit)
                 .ToList();
@@ -207,6 +209,7 @@ public sealed class ExternalMarketDataBridge : IDisposable
             }
 
             var vendorBuys = buyScanner.GetVendorOpportunities()
+                .Where(x => x.WorldId == currentWorldId)
                 .OrderByDescending(x => x.OpportunityScore)
                 .ThenByDescending(x => x.RiskAdjustedProfit)
                 .ToList();
@@ -225,6 +228,7 @@ public sealed class ExternalMarketDataBridge : IDisposable
             }
 
             var crafts = productionScanner.GetCraftOpportunities()
+                .Where(x => x.WorldId == currentWorldId)
                 .OrderByDescending(x => x.OpportunityScore)
                 .ThenByDescending(x => x.EconomicProfit)
                 .ToList();
@@ -239,7 +243,7 @@ public sealed class ExternalMarketDataBridge : IDisposable
                     $"Craft output: modeled economic profit {row.EconomicProfit:N0}g; verify the sell side first.",
                     row.OpportunityScore,
                     row.Confidence,
-                    row.LastSaleUtc));
+                    row.AnalysedAtUtc));
 
                 var majorInputs = row.Ingredients
                     .Where(x => x.Route == ProductionAcquisitionRoute.MarketBoard)
@@ -257,11 +261,12 @@ public sealed class ExternalMarketDataBridge : IDisposable
                         $"Major market-board input for {row.Item.Name}; economic material cost {input.EconomicCost:N0}g.",
                         row.OpportunityScore,
                         row.Confidence,
-                        null));
+                        row.AnalysedAtUtc));
                 }
             }
 
             var gathers = productionScanner.GetGatherOpportunities()
+                .Where(x => x.WorldId == currentWorldId)
                 .OrderByDescending(x => x.OpportunityScore)
                 .ThenByDescending(x => x.EstimatedGilPerActiveMinute)
                 .ToList();
@@ -276,7 +281,7 @@ public sealed class ExternalMarketDataBridge : IDisposable
                     $"Gather candidate: modeled {row.EstimatedGilPerActiveMinute:N0}g per active minute.",
                     row.OpportunityScore,
                     row.Confidence,
-                    row.LastSaleUtc));
+                    row.AnalysedAtUtc));
             }
 
             return JsonSerializer.Serialize(output, JsonOptions);
