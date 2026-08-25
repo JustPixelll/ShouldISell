@@ -73,10 +73,18 @@ public sealed class Plugin : IDalamudPlugin
         SaleAnnouncements = new RetainerSaleAnnouncementObserver(ChatGui, PlayerState, Store, Log);
         Scores = new ScoreCalculator();
         Coordinator = new MarketDataCoordinator(PlayerState, Configuration, Store, Catalog, Inventory, Universalis, Scores, Log);
-        ExternalMarketData = new ExternalMarketDataBridge(PluginInterface, Store, Inventory, PlayerState, Log);
-        ListingAttentionOverlay = new RetainerListingAttentionOverlay(GameGui, PlayerState, Coordinator, Log);
         BuyScanner = new BuyOpportunityScanner(Configuration, PlayerState, Catalog, Inventory, Scores, Log);
         ProductionScanner = new ProductionOpportunityScanner(PlayerState, DataManager, Catalog, Inventory, Log);
+        ExternalMarketData = new ExternalMarketDataBridge(
+            PluginInterface,
+            Store,
+            Inventory,
+            PlayerState,
+            Coordinator,
+            BuyScanner,
+            ProductionScanner,
+            Log);
+        ListingAttentionOverlay = new RetainerListingAttentionOverlay(GameGui, PlayerState, Coordinator, Log);
         PurchaseObserver = new MarketPurchaseObserver(MarketBoard, PlayerState, TraderStore, BuyScanner, Log);
         TraderAnalyzer = new TraderAnalyzer(PlayerState, TraderStore, Store, Coordinator, Catalog);
         ListingHistory = new ListingHistoryTracker(PluginInterface, PlayerState, Store, Log);
