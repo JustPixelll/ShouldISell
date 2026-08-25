@@ -20,7 +20,7 @@ Market recommendations are estimates based on the evidence available at analysis
 | **Should I Buy?** | Which Market Board or vendor opportunities look economically attractive |
 | **Should I Craft?** | Whether crafting beats buying inputs/intermediates after opportunity cost |
 | **Should I Gather?** | Which MIN/BTN gathering opportunities look attractive for active time spent |
-| **Opportunities** | Which available economic action looks strongest right now |
+| **Should I Do?** | Which available economic action looks strongest right now |
 | **Should I Tycoon?** | What is happening to your gil, purchases, positions, FIFO P&L and sales history |
 
 ## Should I Sell?
@@ -43,9 +43,9 @@ Should I Craft? recursively compares Market Board, normal-gil vendor and craftin
 
 Should I Gather? currently focuses on MIN/BTN. It combines gatherer accessibility, source information, market value, demand/stability and a generic active-throughput baseline. Timed availability is treated as availability friction rather than pretending waiting time is active gathering time. Fishing is intentionally not ranked yet.
 
-## Opportunities
+## Should I Do?
 
-The Opportunities view combines currently available Buy, Craft and Gather evidence into one action list while keeping profit, ROI, confidence, liquidity and active-time efficiency visible rather than hiding everything behind one number.
+Should I Do? combines currently available Buy, Craft and Gather evidence into one action list while keeping profit, ROI, confidence, liquidity and active-time efficiency visible rather than hiding everything behind one number.
 
 ## Should I Tycoon?
 
@@ -94,7 +94,8 @@ Use **Should I Sell? → Market Refresh** or module-specific Universalis actions
 | `/shouldi buy` | Buy module |
 | `/shouldi craft` | Craft module |
 | `/shouldi gather` | Gather module |
-| `/shouldi opportunities` | Unified Opportunities |
+| `/shouldi do` | Open Should I Do? |
+| `/shouldi opportunities` | Compatibility alias for Should I Do? |
 | `/shouldi tycoon` | Tycoon |
 | `/shouldi setup` | Setup guide |
 | `/shouldi fetch` | Refresh known-owned market data from Universalis |

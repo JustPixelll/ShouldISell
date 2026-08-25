@@ -6,14 +6,34 @@ public sealed partial class SuiteWindow
 {
     private string craftSearch = string.Empty;
     private string gatherSearch = string.Empty;
-    private string opportunitySearch = string.Empty;
+    private string doSearch = string.Empty;
     private CraftOpportunity? selectedCraftOpportunity;
     private GatherOpportunity? selectedGatherOpportunity;
 
     private void DrawCraftModule()
     {
+        if (selectedCraftOpportunity is { } selected)
+        {
+            var current = plugin.ProductionScanner.GetCraftOpportunities()
+                .FirstOrDefault(x => x.WorldId == CurrentBuyWorldId && x.RecipeId == selected.RecipeId);
+            if (current is null)
+            {
+                selectedCraftOpportunity = null;
+            }
+            else if (ImGui.Button("BACK TO CRAFT RESULTS"))
+            {
+                selectedCraftOpportunity = null;
+            }
+            else
+            {
+                selectedCraftOpportunity = current;
+                DrawCraftDetails(current);
+                return;
+            }
+        }
+
         ImGui.TextWrapped("Should I Craft? compares the realistic after-tax sale value of a recipe with the economic value of every input. It recursively chooses cheaper craft/vendor/Market Board routes for intermediates, checks your actual crafter level, and keeps cash cost separate from opportunity cost.");
-        ImGui.TextDisabled("v1 production model is NQ-to-NQ. Craft execution time is a generic estimate; material and market economics are the high-confidence part.");
+        ImGui.TextDisabled("The production model is NQ-to-NQ. Craft execution time is a generic estimate; material and market economics are the higher-confidence part.");
         ImGui.Spacing();
 
         DrawProductionScanButtons(primary: "craft");
@@ -29,7 +49,7 @@ public sealed partial class SuiteWindow
         if (ImGui.BeginTable("##craft-opportunities", 9,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable |
                 ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Sortable,
-                new System.Numerics.Vector2(0, 360)))
+                new System.Numerics.Vector2(0, -1)))
         {
             ImGui.TableSetupScrollFreeze(0, 1);
             ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending);
@@ -73,13 +93,10 @@ public sealed partial class SuiteWindow
             ImGui.EndTable();
         }
 
-        if (selectedCraftOpportunity is { } selected && rows.Any(x => x.RecipeId == selected.RecipeId))
-            DrawCraftDetails(selected);
     }
 
     private void DrawCraftDetails(CraftOpportunity row)
     {
-        ImGui.Separator();
         ImGui.TextUnformatted($"CRAFT PLAN — {row.Item.Name}");
         ImGui.TextWrapped($"Craft {row.ResultQuantity:N0} with {row.CrafterName}. Expected net sale value {row.NetSaleValue:N0}g, economic material cost {row.EconomicMaterialCost:N0}g, cash material cost {row.CashMaterialCost:N0}g, economic profit {row.EconomicProfit:N0}g ({row.Roi:P1} ROI).");
         if (row.EstimatedProfitPerActiveMinute is { } gpm)
@@ -129,8 +146,30 @@ public sealed partial class SuiteWindow
 
     private void DrawGatherModule()
     {
+        if (selectedGatherOpportunity is { } selected)
+        {
+            var current = plugin.ProductionScanner.GetGatherOpportunities()
+                .FirstOrDefault(x => x.WorldId == CurrentBuyWorldId &&
+                                     x.Item.ItemId == selected.Item.ItemId &&
+                                     x.GathererClassJobId == selected.GathererClassJobId);
+            if (current is null)
+            {
+                selectedGatherOpportunity = null;
+            }
+            else if (ImGui.Button("BACK TO GATHER RESULTS"))
+            {
+                selectedGatherOpportunity = null;
+            }
+            else
+            {
+                selectedGatherOpportunity = current;
+                DrawGatherDetails(current);
+                return;
+            }
+        }
+
         ImGui.TextWrapped("Should I Gather? asks whether a gatherable material is economically attractive to farm and sell. MIN/BTN eligibility, node location, hidden/timed status and market demand are real game/market inputs. The current active-yield figure is a generic baseline; uncertainty is expressed through confidence instead of an arbitrary ±35% range.");
-        ImGui.TextDisabled("Fishing is intentionally not ranked in v1. A real throughput range will return only when it is derived from node topology or observed personal sessions rather than generic padding.");
+        ImGui.TextDisabled("Fishing is intentionally not ranked yet. A real throughput range will return only when it is derived from node topology or observed personal sessions rather than generic padding.");
         ImGui.Spacing();
 
         DrawProductionScanButtons(primary: "gather");
@@ -146,7 +185,7 @@ public sealed partial class SuiteWindow
         if (ImGui.BeginTable("##gather-opportunities", 8,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable |
                 ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Sortable,
-                new System.Numerics.Vector2(0, 360)))
+                new System.Numerics.Vector2(0, -1)))
         {
             ImGui.TableSetupScrollFreeze(0, 1);
             ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending);
@@ -154,7 +193,7 @@ public sealed partial class SuiteWindow
             ImGui.TableSetupColumn("Job");
             ImGui.TableSetupColumn("Location");
             ImGui.TableSetupColumn("Availability");
-            ImGui.TableSetupColumn("g/active min");
+            ImGui.TableSetupColumn("Value/active min");
             ImGui.TableSetupColumn("Units/day");
             ImGui.TableSetupColumn("Confidence");
             ImGui.TableHeadersRow();
@@ -187,15 +226,12 @@ public sealed partial class SuiteWindow
             ImGui.EndTable();
         }
 
-        if (selectedGatherOpportunity is { } selected && rows.Any(x => x.Item.ItemId == selected.Item.ItemId && x.GathererClassJobId == selected.GathererClassJobId))
-            DrawGatherDetails(selected);
     }
 
     private void DrawGatherDetails(GatherOpportunity row)
     {
-        ImGui.Separator();
         ImGui.TextUnformatted($"GATHER MODEL — {row.Item.Name}");
-        ImGui.TextWrapped($"{row.GathererName} {row.RequiredLevel}; your recorded job level is {row.PlayerLevel}. Realistic sale reference ~{row.RealisticUnitSalePrice:N0}g/unit. Generic active-yield baseline ~{row.EstimatedUnitsPerActiveMinute:0.0}/min, equivalent to ~{row.EstimatedGilPerActiveMinute:N0}g/active min after seller tax.");
+        ImGui.TextWrapped($"{row.GathererName} {row.RequiredLevel}; your recorded job level is {row.PlayerLevel}. Realistic sale reference ~{row.RealisticUnitSalePrice:N0}g/unit. Generic active-yield baseline ~{row.EstimatedUnitsPerActiveMinute:0.0}/min, equivalent to ~{row.EstimatedGilPerActiveMinute:N0}g of after-tax market value per active minute.");
         ImGui.TextDisabled(row.IsTimed
             ? "Availability: timed/ephemeral node detected. Waiting time is NOT treated as active gathering time."
             : row.IsHidden ? "Availability: hidden-node friction detected." : "Availability: regular node model.");
@@ -208,9 +244,9 @@ public sealed partial class SuiteWindow
             ImGui.BulletText(note);
     }
 
-    private void DrawOpportunitiesModule()
+    private void DrawDoModule()
     {
-        ImGui.TextWrapped("Opportunities is the cross-module answer to ‘what is worth doing right now?’. It ranks cached Buy, Craft and Gather results on one 0–100 opportunity scale. Craft + Gather rows flag recipes whose inputs are themselves strong gathering opportunities, without pretending gathered materials are free.");
+        ImGui.TextWrapped("Should I Do? answers ‘what is worth doing right now?’. It ranks cached Buy, Craft and Gather results on one 0–100 opportunity scale. Craft + Gather rows flag recipes whose inputs are themselves strong gathering opportunities, without pretending gathered materials are free.");
         ImGui.Spacing();
         DrawProductionScanButtons(primary: "all");
         if (!plugin.BuyScanner.IsScanning && ImGui.Button("REFRESH BUY OPPORTUNITIES TOO"))
@@ -219,18 +255,18 @@ public sealed partial class SuiteWindow
         ImGui.TextDisabled("Buy results remain cached independently; this view merges whichever modules have current results.");
 
         ImGui.SetNextItemWidth(280);
-        ImGui.InputText("Search all opportunities", ref opportunitySearch, 128);
+        ImGui.InputText("Search all actions", ref doSearch, 128);
         var worldId = CurrentBuyWorldId;
         var buy = plugin.BuyScanner.GetOpportunities().Where(x => worldId == 0 || x.WorldId == worldId);
         var rows = plugin.ProductionScanner.GetUnifiedOpportunities(buy)
-            .Where(x => string.IsNullOrWhiteSpace(opportunitySearch) || x.ItemName.Contains(opportunitySearch, StringComparison.CurrentCultureIgnoreCase))
+            .Where(x => string.IsNullOrWhiteSpace(doSearch) || x.ItemName.Contains(doSearch, StringComparison.CurrentCultureIgnoreCase))
             .ToList();
 
         ImGui.TextDisabled($"{rows.Count:N0} ranked action(s). Rating and confidence are separate: a spectacular but uncertain opportunity can still show low confidence.");
         if (ImGui.BeginTable("##unified-opportunities", 9,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable |
                 ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Sortable,
-                new System.Numerics.Vector2(0, 470)))
+                new System.Numerics.Vector2(0, -1)))
         {
             ImGui.TableSetupScrollFreeze(0, 1);
             ImGui.TableSetupColumn("Type");
@@ -239,7 +275,7 @@ public sealed partial class SuiteWindow
             ImGui.TableSetupColumn("Action");
             ImGui.TableSetupColumn("Profit");
             ImGui.TableSetupColumn("ROI");
-            ImGui.TableSetupColumn("g/active min");
+            ImGui.TableSetupColumn("Value/active min");
             ImGui.TableSetupColumn("Liquidation");
             ImGui.TableSetupColumn("Confidence");
             ImGui.TableHeadersRow();

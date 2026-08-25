@@ -4,6 +4,8 @@ namespace ShouldISell.Windows;
 
 public sealed partial class SuiteWindow
 {
+    private const double BuyLiquidityScoringHorizonDays = 14.0;
+
     private readonly Dictionary<BuyModelCacheKey, BuyOpportunity?> buyModelCache = new();
 
     private readonly record struct BuyModelCacheKey(
@@ -14,10 +16,7 @@ public sealed partial class SuiteWindow
         long RawAnalysedAt,
         long LiveObservedAt,
         int CurrentOwned,
-        bool HasOwnListing,
-        int MinimumProfit,
-        int MinimumRoiTenths,
-        int MaximumHoldingTenths);
+        bool HasOwnListing);
 
     private IReadOnlyList<BuyOpportunity> GetModelAdjustedBuyOpportunities(uint worldId)
     {
@@ -77,10 +76,7 @@ public sealed partial class SuiteWindow
             raw.AnalysedAtUtc.ToUnixTimeMilliseconds(),
             liveAt?.ToUnixTimeMilliseconds() ?? 0,
             currentOwned,
-            hasOwnListing,
-            plugin.Configuration.BuyMinimumProfitGil,
-            (int)Math.Round(plugin.Configuration.BuyMinimumRoiPercent * 10),
-            (int)Math.Round(plugin.Configuration.BuyMaximumHoldingDays * 10));
+            hasOwnListing);
         if (buyModelCache.TryGetValue(key, out var cached))
             return cached;
 
@@ -121,8 +117,7 @@ public sealed partial class SuiteWindow
         var netExit = opportunity.NetExitUnitPrice ?? 0;
         var potentialProfit = netExit * (double)needed - acquisitionCost;
         var roi = acquisitionCost > 0 ? potentialProfit / acquisitionCost : 0;
-        var minimumRoi = plugin.Configuration.BuyMinimumRoiPercent / 100.0;
-        if (potentialProfit < plugin.Configuration.BuyMinimumProfitGil || roi < minimumRoi)
+        if (potentialProfit <= 0 || roi <= 0)
             return null;
 
         var ratio = opportunity.PotentialProfit > 0
@@ -131,7 +126,7 @@ public sealed partial class SuiteWindow
         var resultingPosition = currentOwned + needed;
         var cycles = DivideRoundUpBuy(resultingPosition, targetStack);
         var notes = opportunity.Notes.ToList();
-        notes.Add($"v1.1.5 Vendor → Market rule: vendor supply is replenishable, so the recommendation only tops up one {targetStack:N0}-unit working listing instead of stockpiling several days of demand.");
+        notes.Add($"Vendor supply is replenishable, so the recommendation only tops up one {targetStack:N0}-unit working listing instead of stockpiling several days of demand.");
         if (currentOwned > 0)
             notes.Add($"You already own {currentOwned:N0}; only the missing {needed:N0} unit(s) are still suggested. Once this item is actively listed, the Vendor → Market recommendation is hidden until the listing is gone.");
 
@@ -220,8 +215,9 @@ public sealed partial class SuiteWindow
             Math.Max(1, rating.StackRecommendation?.RecommendedStackSize ?? opportunity.SuggestedExitStackSize));
         var exitCycles = DivideRoundUpBuy(resultingPosition, stackSize);
         var liquidationDays = EstimateNativeSequentialLiquidation(rating, resultingPosition, stackSize);
-        var maxHolding = Math.Max(0.25, plugin.Configuration.BuyMaximumHoldingDays);
-        var liquidityFit = liquidationDays is { } days ? Math.Exp(-days / maxHolding) : 0.0;
+        var liquidityFit = liquidationDays is { } days
+            ? Math.Exp(-days / BuyLiquidityScoringHorizonDays)
+            : 0.0;
         var riskFactor = Clamp01Buy(
             rating.Confidence *
             (0.55 + 0.45 * liquidityFit) *
@@ -230,28 +226,22 @@ public sealed partial class SuiteWindow
         var baseScore = ScoreNativeBaseOpportunity(
             roi,
             potentialProfit,
-            liquidationDays ?? maxHolding * 4,
-            maxHolding,
+            liquidationDays ?? BuyLiquidityScoringHorizonDays * 4,
+            BuyLiquidityScoringHorizonDays,
             PriceAdvantageBuy(opportunity.AcquisitionCost, opportunity.AcquireQuantity, netExit),
             rating.Breakdown.Demand,
             rating.Breakdown.Stability,
             rating.Confidence,
             Math.Max(1, opportunity.AcquisitionLots.Count),
-            exitCycles,
-            plugin.Configuration.BuyMinimumProfitGil);
-
-        var minimumRoi = plugin.Configuration.BuyMinimumRoiPercent / 100.0;
-        var violatesMinimum = potentialProfit < plugin.Configuration.BuyMinimumProfitGil ||
-                              roi < minimumRoi ||
-                              liquidationDays is null ||
-                              liquidationDays > maxHolding;
-        if (violatesMinimum)
-            baseScore = Math.Min(baseScore, 34.0);
+            exitCycles);
 
         var notes = opportunity.Notes.ToList();
         notes.Add($"Fresh FFXIV snapshot re-rated this opportunity from the fresh {liveAt.ToLocalTime():HH:mm:ss} board/history snapshot. Exit price, confidence, liquidity, profit and the displayed rating now react to that native data.");
-        if (violatesMinimum)
-            notes.Add("The native re-score no longer satisfies at least one configured minimum (profit, ROI or holding time), so its base score is capped below the normal recommendation range.");
+        if (potentialProfit <= 0 || roi <= 0)
+        {
+            notes.Add("The fresh snapshot no longer models a profitable exit. The finding remains visible with a low score so the market change is explicit rather than silently filtered out.");
+            baseScore = Math.Min(baseScore, 20.0);
+        }
 
         return opportunity with
         {
@@ -267,7 +257,7 @@ public sealed partial class SuiteWindow
             Roi = roi,
             EstimatedFirstSaleDays = rating.EstimatedQueueDays,
             EstimatedLiquidationDays = liquidationDays,
-            MaximumRecommendedBuyPrice = CalculateMaximumBuyPriceBuy(netExit, minimumRoi),
+            BreakEvenBuyPrice = CalculateBreakEvenBuyPrice(netExit),
             UnitsPerDay = rating.UnitsPerDay,
             SalesSampleCount = rating.SalesSampleCount,
             MarketFreshnessUtc = liveAt,
@@ -330,7 +320,7 @@ public sealed partial class SuiteWindow
         var adjustedRiskProfit = opportunity.RiskAdjustedProfit * deploymentFactor * cycleFactor;
 
         var notes = opportunity.Notes.ToList();
-        notes.Add($"v1.1.5 one-listing execution model: one active {listingStack:N0}-unit listing exposes about {OneListingNetRevenue(opportunity):N0}g net, recovering {recovery:P1} of the {opportunity.AcquisitionCost:N0}g new capital per sale; the resulting position needs about {cycles:N0} sequential listing cycle(s). Base score {opportunity.OpportunityScore:0.0} → displayed score {score:0.0} after the one-listing capital/cycle ceilings.");
+        notes.Add($"One-listing execution model: one active {listingStack:N0}-unit listing exposes about {OneListingNetRevenue(opportunity):N0}g net, recovering {recovery:P1} of the {opportunity.AcquisitionCost:N0}g new capital per sale; the resulting position needs about {cycles:N0} sequential listing cycle(s). Base score {opportunity.OpportunityScore:0.0} → displayed score {score:0.0} after the one-listing capital/cycle ceilings.");
 
         return opportunity with
         {
@@ -404,18 +394,17 @@ public sealed partial class SuiteWindow
         double roi,
         double profit,
         double liquidationDays,
-        double maxHoldingDays,
+        double liquidityHorizonDays,
         double priceAdvantage,
         double demand,
         double stability,
         double confidence,
         int acquisitionListingCount,
-        int exitListingCount,
-        double minimumProfit)
+        int exitListingCount)
     {
         var roiScore = Clamp01Buy(Math.Log10(1 + Math.Max(0, roi) * 20) / Math.Log10(21));
-        var profitScore = ScoreProfitBuy(profit, minimumProfit);
-        var liquidity = Math.Exp(-Math.Max(0, liquidationDays) / Math.Max(1, maxHoldingDays));
+        var profitScore = ScoreProfitBuy(profit);
+        var liquidity = Math.Exp(-Math.Max(0, liquidationDays) / Math.Max(1, liquidityHorizonDays));
         var executionCount = Math.Max(1, acquisitionListingCount + exitListingCount);
         var friction = Clamp01Buy(Math.Log10(executionCount) / Math.Log10(50));
         var weighted =
@@ -430,12 +419,12 @@ public sealed partial class SuiteWindow
         return 100 * Clamp01Buy(weighted);
     }
 
-    private static double ScoreProfitBuy(double profit, double minimumProfit)
+    private static double ScoreProfitBuy(double profit)
     {
         if (profit <= 0)
             return 0;
-        var reference = Math.Max(500, minimumProfit);
-        return Clamp01Buy(0.5 + 0.25 * Math.Log10(profit / reference));
+        const double neutralProfitGil = 500;
+        return Clamp01Buy(0.5 + 0.25 * Math.Log10(profit / neutralProfitGil));
     }
 
     private static double PriceAdvantageBuy(long cost, int quantity, uint netExit)
@@ -446,12 +435,11 @@ public sealed partial class SuiteWindow
         return Clamp01Buy((netExit - costPerUnit) / netExit);
     }
 
-    private static uint CalculateMaximumBuyPriceBuy(uint netExit, double minimumRoi)
+    private static uint CalculateBreakEvenBuyPrice(uint netExit)
     {
         if (netExit == 0)
             return 0;
-        var grossAcquisitionCeiling = netExit / Math.Max(1.0, 1.0 + minimumRoi);
-        var preTax = grossAcquisitionCeiling / 1.05;
+        var preTax = netExit / 1.05;
         return (uint)Math.Max(1, Math.Floor(preTax));
     }
 
@@ -469,4 +457,3 @@ public sealed partial class SuiteWindow
 
     private static double Clamp01Buy(double value) => Math.Clamp(value, 0.0, 1.0);
 }
-

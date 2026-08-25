@@ -11,7 +11,7 @@ public enum ShouldIModule
     Buy,
     Craft,
     Gather,
-    Opportunities,
+    Do,
     Tycoon,
 }
 
@@ -74,8 +74,8 @@ public sealed partial class SuiteWindow : Window, IDisposable
                 gatherSearch = item.Name;
                 selectedGatherOpportunity = null;
                 break;
-            case ShouldIModule.Opportunities:
-                opportunitySearch = item.Name;
+            case ShouldIModule.Do:
+                doSearch = item.Name;
                 break;
         }
 
@@ -96,7 +96,7 @@ public sealed partial class SuiteWindow : Window, IDisposable
         DrawModuleTab(ShouldIModule.Buy, "Should I Buy?", DrawBuyModule);
         DrawModuleTab(ShouldIModule.Craft, "Should I Craft?", DrawCraftModule);
         DrawModuleTab(ShouldIModule.Gather, "Should I Gather?", DrawGatherModule);
-        DrawModuleTab(ShouldIModule.Opportunities, "Opportunities", DrawOpportunitiesModule);
+        DrawModuleTab(ShouldIModule.Do, "Should I Do?", DrawDoModule);
         DrawModuleTab(ShouldIModule.Tycoon, "Should I Tycoon?", DrawTycoonModule);
         ImGui.EndTabBar();
 

@@ -62,7 +62,14 @@ public sealed unsafe class ItemTooltipAugmenter : IDisposable
     {
         addonLifecycle.UnregisterListener(AddonEvent.PreRequestedUpdate, "ItemDetail", OnPreTooltipUpdate);
         addonLifecycle.UnregisterListener(AddonEvent.PostRequestedUpdate, "ItemDetail", OnPostTooltipUpdate);
-        try { itemHoveredHook?.Dispose(); } catch { }
+        try
+        {
+            itemHoveredHook?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            log.Warning(ex, "Should I? could not dispose the item-hover hook cleanly.");
+        }
     }
 
     private byte OnItemHoveredDetour(void* a1, void* a2, void* a3, void* a4, uint a5, uint a6, int* a7)
@@ -265,7 +272,7 @@ public sealed unsafe class ItemTooltipAugmenter : IDisposable
             valueLine,
             buy is null ? null : $"Buy   {Stars(buy.Stars)} {buy.OpportunityScore:0}/100 · +{buy.PotentialProfit:N0}g",
             craft is null ? null : $"Craft {Stars(craft.Stars)} {craft.OpportunityScore:0}/100 · +{craft.EconomicProfit:N0}g",
-            gather is null ? null : $"Gather {Stars(gather.Stars)} {gather.OpportunityScore:0}/100 · ~{gather.EstimatedGilPerActiveMinute:N0}g/min");
+            gather is null ? null : $"Gather {Stars(gather.Stars)} {gather.OpportunityScore:0}/100 · ~{gather.EstimatedGilPerActiveMinute:N0}g value/min");
     }
 
     private static SeString BuildSeString(TooltipInsight insight)

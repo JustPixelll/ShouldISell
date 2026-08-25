@@ -73,8 +73,11 @@ public sealed class TycoonInsightService
     private readonly LocalStore sellStore;
     private readonly GameItemCatalog catalog;
     private readonly ListingHistoryTracker listingHistory;
+    private readonly object cacheGate = new();
     private TycoonInsightSnapshot? cached;
-    private DateTimeOffset cacheUntilUtc;
+    private ulong cachedContentId;
+    private long cachedSellRevision = -1;
+    private long cachedListingRevision = -1;
 
     public TycoonInsightService(
         IPlayerState playerState,
@@ -90,12 +93,28 @@ public sealed class TycoonInsightService
 
     public TycoonInsightSnapshot GetSnapshot(bool force = false)
     {
-        if (!force && cached is not null && DateTimeOffset.UtcNow < cacheUntilUtc)
-            return cached;
+        var contentId = playerState.IsLoaded ? playerState.ContentId : 0;
+        var sellRevision = sellStore.SalesRevision;
+        var listingRevision = listingHistory.Revision;
 
-        cached = Calculate();
-        cacheUntilUtc = DateTimeOffset.UtcNow.AddSeconds(2);
-        return cached;
+        lock (cacheGate)
+        {
+            if (!force && cached is not null &&
+                cachedContentId == contentId &&
+                cachedSellRevision == sellRevision &&
+                cachedListingRevision == listingRevision)
+                return cached;
+        }
+
+        var snapshot = Calculate();
+        lock (cacheGate)
+        {
+            cached = snapshot;
+            cachedContentId = contentId;
+            cachedSellRevision = sellRevision;
+            cachedListingRevision = listingRevision;
+        }
+        return snapshot;
     }
 
     private TycoonInsightSnapshot Calculate()

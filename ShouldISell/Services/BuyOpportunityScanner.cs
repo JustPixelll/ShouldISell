@@ -22,6 +22,9 @@ public sealed class BuyOpportunityScanner : IDisposable
     private const int BatchSize = 100;
     private const int MaxListingPackagesPerVariant = 20;
     private const double ConservativeBuyerTaxRate = 0.05;
+    private const long MaximumExecutablePackageCostGil = 999_999_999;
+    private const double LiquidityScoringHorizonDays = 14.0;
+    private const double RareRescueMinimumMargin = 0.08;
 
     private readonly Configuration configuration;
     private readonly IPlayerState playerState;
@@ -53,7 +56,7 @@ public sealed class BuyOpportunityScanner : IDisposable
 
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(30);
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "2.3.4"));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "2.3.5"));
     }
 
     public bool IsScanning { get; private set; }
@@ -193,7 +196,7 @@ public sealed class BuyOpportunityScanner : IDisposable
                 .ToList();
             var selectedIds = new HashSet<uint>();
 
-            // v2.0: keep rare-item discovery, but do not let discovery-only DC/region/listing
+            // Keep rare-item discovery, but do not let discovery-only DC/region/listing
             // evidence crowd current-world sellers out of the expensive 90-day deep stage.
             // The main pool is current-world sale-backed. A bounded rescue pool is explicitly
             // reserved for rare items, and a separate local high-gil lane protects large flips.
@@ -299,15 +302,18 @@ public sealed class BuyOpportunityScanner : IDisposable
 
                 ownedByVariant.TryGetValue((candidate.Entry.Item.ItemId, candidate.IsHq), out var existingQuantity);
                 if (lane == BuyScanLane.MarketBoard && settings.EnableMarketToMarket && !HasRenewableVendorSupply(candidate.Entry.Item, candidate.IsHq))
-                    TryAddBestMarketFlip(final, worldId, candidate, deep, existingQuantity, settings);
+                    TryAddBestMarketFlip(final, worldId, candidate, deep, existingQuantity);
                 if (lane == BuyScanLane.Vendor && settings.EnableVendorToMarket && !candidate.IsHq && candidate.Entry.Item.VendorGilShopPrice is > 0)
-                    TryAddVendorToMarket(final, worldId, candidate, deep, existingQuantity, settings);
+                    TryAddVendorToMarket(final, worldId, candidate, deep, existingQuantity);
                 if (lane == BuyScanLane.MarketBoard && settings.EnableMarketToVendor && candidate.Entry.Item.VendorBuybackPrice > 0)
-                    TryAddMarketToVendor(final, worldId, candidate, deep, existingQuantity, settings);
+                    TryAddMarketToVendor(final, worldId, candidate, deep, existingQuantity);
             }
 
             final = final
-                .Where(x => x.AcquisitionCost <= settings.BudgetGil)
+                .Where(x => x.AcquireQuantity > 0 &&
+                            x.AcquisitionCost is > 0 and <= MaximumExecutablePackageCostGil &&
+                            x.PotentialProfit > 0 &&
+                            x.Roi > 0)
                 .OrderByDescending(x => x.OpportunityScore)
                 .ThenByDescending(x => x.RiskAdjustedProfit)
                 .ThenByDescending(x => x.PotentialProfit)
@@ -403,8 +409,7 @@ public sealed class BuyOpportunityScanner : IDisposable
         uint worldId,
         RoughCandidate candidate,
         DeepMarketData deep,
-        int existingQuantity,
-        ScanSettings settings)
+        int existingQuantity)
     {
         // A normal-gil vendor is effectively renewable external supply. Buying out player listings
         // does not create durable scarcity because any player can immediately restock at the fixed
@@ -420,8 +425,6 @@ public sealed class BuyOpportunityScanner : IDisposable
         if (variantListings.Count == 0)
             return;
 
-        var perItemBudget = Math.Min(settings.BudgetGil,
-            Math.Max(1L, settings.BudgetGil * Math.Clamp(settings.MaxInvestmentPercentPerItem, 1, 100) / 100L));
         long cumulativeCost = 0;
         var cumulativeQuantity = 0;
         BuyOpportunity? best = null;
@@ -431,7 +434,7 @@ public sealed class BuyOpportunityScanner : IDisposable
             var acquired = variantListings[i];
             cumulativeQuantity += checked((int)acquired.Listing.Quantity);
             cumulativeCost += acquired.TotalCost;
-            if (cumulativeCost > settings.BudgetGil || cumulativeCost > perItemBudget)
+            if (cumulativeCost > MaximumExecutablePackageCostGil)
                 break;
 
             var market = new MarketSnapshot
@@ -458,15 +461,15 @@ public sealed class BuyOpportunityScanner : IDisposable
 
             var potentialProfit = netExit * (double)cumulativeQuantity - cumulativeCost;
             var roi = cumulativeCost > 0 ? potentialProfit / cumulativeCost : 0;
-            if (potentialProfit < settings.MinimumProfitGil || roi < settings.MinimumRoi)
+            if (potentialProfit <= 0 || roi <= 0)
                 continue;
 
             var liquidationDays = EstimateLiquidationDays(rating, resultingPosition);
-            if (liquidationDays is null || liquidationDays > settings.MaximumHoldingDays)
+            if (liquidationDays is null)
                 continue;
 
             var firstSaleDays = rating.EstimatedQueueDays;
-            var liquidityFit = Math.Exp(-liquidationDays.Value / Math.Max(1.0, settings.MaximumHoldingDays));
+            var liquidityFit = Math.Exp(-liquidationDays.Value / LiquidityScoringHorizonDays);
             var riskFactor = Clamp01(
                 rating.Confidence *
                 (0.55 + 0.45 * liquidityFit) *
@@ -476,14 +479,13 @@ public sealed class BuyOpportunityScanner : IDisposable
                 roi,
                 potentialProfit,
                 liquidationDays.Value,
-                settings.MaximumHoldingDays,
+                LiquidityScoringHorizonDays,
                 PriceAdvantage(cumulativeCost, cumulativeQuantity, netExit),
                 rating.Breakdown.Demand,
                 rating.Breakdown.Stability,
                 rating.Confidence,
                 i + 1,
-                rating.StackRecommendation?.RecommendedListingCount ?? 1,
-                settings.MinimumProfitGil);
+                rating.StackRecommendation?.RecommendedListingCount ?? 1);
 
             var stackSize = rating.StackRecommendation?.RecommendedStackSize ?? Math.Max(1, cumulativeQuantity);
             var exitListings = rating.StackRecommendation?.RecommendedListingCount ?? DivideRoundUp(resultingPosition, stackSize);
@@ -493,7 +495,7 @@ public sealed class BuyOpportunityScanner : IDisposable
                 cumulativeQuantity,
                 stackSize);
             var label = StrategyLabel(kind);
-            var maxBuy = CalculateMaximumBuyPrice(netExit, settings.MinimumRoi);
+            var maxBuy = CalculateBreakEvenBuyPrice(netExit);
             var notes = BuildMarketNotes(candidate, rating, cumulativeQuantity, cumulativeCost, existingQuantity, variantListings, i);
             var opportunity = new BuyOpportunity(
                 worldId,
@@ -539,21 +541,17 @@ public sealed class BuyOpportunityScanner : IDisposable
         uint worldId,
         RoughCandidate candidate,
         DeepMarketData deep,
-        int existingQuantity,
-        ScanSettings settings)
+        int existingQuantity)
     {
         var vendorPrice = candidate.Entry.Item.VendorGilShopPrice;
         if (vendorPrice is not > 0 || candidate.Variant.DailyVelocity <= 0.001)
             return;
 
-        var affordable = (int)Math.Min(int.MaxValue, settings.BudgetGil / vendorPrice.Value);
-        var perItemBudget = Math.Max(1L, settings.BudgetGil * Math.Clamp(settings.MaxInvestmentPercentPerItem, 1, 100) / 100L);
-        affordable = Math.Min(affordable, (int)Math.Min(int.MaxValue, perItemBudget / vendorPrice.Value));
-        var demandBound = Math.Max(1, (int)Math.Ceiling(candidate.Variant.DailyVelocity * settings.MaximumHoldingDays));
+        var affordable = (int)Math.Min(int.MaxValue, MaximumExecutablePackageCostGil / vendorPrice.Value);
         var stackBound = Math.Min(
             MarketBoardRules.MaxListingQuantity,
             (int)Math.Clamp(candidate.Entry.Item.StackSize == 0 ? (uint)MarketBoardRules.MaxListingQuantity : candidate.Entry.Item.StackSize, 1u, int.MaxValue));
-        var quantity = Math.Min(affordable, Math.Min(demandBound, stackBound));
+        var quantity = Math.Min(affordable, stackBound);
         if (quantity <= 0)
             return;
 
@@ -583,25 +581,23 @@ public sealed class BuyOpportunityScanner : IDisposable
         var potentialProfit = netExit * (double)quantity - cost;
         var roi = cost > 0 ? potentialProfit / cost : 0;
         var liquidationDays = EstimateLiquidationDays(rating, resultingPosition);
-        if (potentialProfit < settings.MinimumProfitGil || roi < settings.MinimumRoi ||
-            liquidationDays is null || liquidationDays > settings.MaximumHoldingDays)
+        if (potentialProfit <= 0 || roi <= 0 || liquidationDays is null)
             return;
 
-        var liquidityFit = Math.Exp(-liquidationDays.Value / Math.Max(1.0, settings.MaximumHoldingDays));
+        var liquidityFit = Math.Exp(-liquidationDays.Value / LiquidityScoringHorizonDays);
         var riskFactor = Clamp01(rating.Confidence * (0.55 + 0.45 * liquidityFit) * (0.75 + 0.25 * rating.Breakdown.Stability));
         var riskAdjustedProfit = potentialProfit * riskFactor;
         var score = ScoreBuyOpportunity(
             roi,
             potentialProfit,
             liquidationDays.Value,
-            settings.MaximumHoldingDays,
+            LiquidityScoringHorizonDays,
             PriceAdvantage(cost, quantity, netExit),
             rating.Breakdown.Demand,
             rating.Breakdown.Stability,
             rating.Confidence,
             1,
-            rating.StackRecommendation?.RecommendedListingCount ?? 1,
-            settings.MinimumProfitGil);
+            rating.StackRecommendation?.RecommendedListingCount ?? 1);
 
         var stackSize = rating.StackRecommendation?.RecommendedStackSize ?? quantity;
         var notes = new List<string>
@@ -636,7 +632,7 @@ public sealed class BuyOpportunityScanner : IDisposable
             roi,
             rating.EstimatedQueueDays,
             liquidationDays,
-            CalculateMaximumBuyPrice(netExit, settings.MinimumRoi),
+            CalculateBreakEvenBuyPrice(netExit),
             rating.UnitsPerDay,
             rating.SalesSampleCount,
             rating.ListingFreshnessUtc,
@@ -650,8 +646,7 @@ public sealed class BuyOpportunityScanner : IDisposable
         uint worldId,
         RoughCandidate candidate,
         DeepMarketData deep,
-        int existingQuantity,
-        ScanSettings settings)
+        int existingQuantity)
     {
         var floor = candidate.Entry.Item.VendorBuybackPrice;
         if (floor == 0)
@@ -664,8 +659,6 @@ public sealed class BuyOpportunityScanner : IDisposable
         if (listings.Count == 0)
             return;
 
-        var perItemBudget = Math.Min(settings.BudgetGil,
-            Math.Max(1L, settings.BudgetGil * Math.Clamp(settings.MaxInvestmentPercentPerItem, 1, 100) / 100L));
         long cost = 0;
         var quantity = 0;
         var taken = new List<BuyListingWork>();
@@ -674,7 +667,7 @@ public sealed class BuyOpportunityScanner : IDisposable
             var payout = (long)floor * listing.Listing.Quantity;
             if (listing.TotalCost >= payout)
                 break;
-            if (cost + listing.TotalCost > settings.BudgetGil || cost + listing.TotalCost > perItemBudget)
+            if (cost + listing.TotalCost > MaximumExecutablePackageCostGil)
                 continue;
 
             cost += listing.TotalCost;
@@ -688,13 +681,13 @@ public sealed class BuyOpportunityScanner : IDisposable
         var vendorPayout = (double)floor * quantity;
         var profit = vendorPayout - cost;
         var roi = profit / cost;
-        if (profit < settings.MinimumProfitGil || roi < settings.MinimumRoi)
+        if (profit <= 0 || roi <= 0)
             return;
 
         // The exit itself is guaranteed and immediate; confidence only describes our acquisition
         // observation, not whether the NPC will pay its fixed buyback price.
         var priceScore = Clamp01(Math.Log10(1 + roi * 20) / Math.Log10(21));
-        var profitScore = ScoreProfit(profit, settings.MinimumProfitGil);
+        var profitScore = ScoreProfit(profit);
         var score = 100 * Clamp01(0.55 * priceScore + 0.40 * profitScore + 0.05);
         score = Math.Max(score, 70);
         var notes = new List<string>
@@ -748,14 +741,11 @@ public sealed class BuyOpportunityScanner : IDisposable
             return;
 
         var conservativeUnitCost = variant.MinListing * (1.0 + ConservativeBuyerTaxRate);
-        var perItemBudget = Math.Min(settings.BudgetGil,
-            Math.Max(1L, settings.BudgetGil * Math.Clamp(settings.MaxInvestmentPercentPerItem, 1, 100) / 100L));
-        var affordableSingleUnit = conservativeUnitCost > 0 && conservativeUnitCost <= perItemBudget;
+        var affordableSingleUnit = conservativeUnitCost > 0 && conservativeUnitCost <= MaximumExecutablePackageCostGil;
         var vendorContested = HasRenewableVendorSupply(item, isHq);
 
-        // Primary discovery is deliberately current-world and sale-backed. This is the pool that
-        // produced useful breadth before v1.1.7 and it must not be displaced by thousands of
-        // speculative remote/listing-only gaps.
+        // Primary discovery is deliberately current-world and sale-backed. It must not be displaced
+        // by thousands of speculative remote/listing-only gaps.
         var netWorldAverage = variant.AverageSalePrice * (1.0 - ScoreCalculator.MarketSellerTaxRate);
         var localMargin = conservativeUnitCost > 0
             ? (netWorldAverage - conservativeUnitCost) / conservativeUnitCost
@@ -764,7 +754,7 @@ public sealed class BuyOpportunityScanner : IDisposable
         var localMarketSignal = settings.EnableMarketToMarket && !vendorContested &&
                                 variant.MinListing > 0 && affordableSingleUnit &&
                                 variant.AverageSalePrice > 0 && variant.DailyVelocity > 0.001 &&
-                                localMargin >= settings.MinimumRoi * 0.60;
+                                localMargin > 0;
 
         // Rare-item rescue is intentionally a separate signal. It may use DC/region sales or
         // conservative listing medians only to earn a LIMITED deep-history slot. It never becomes
@@ -777,7 +767,7 @@ public sealed class BuyOpportunityScanner : IDisposable
             ? (netDiscoveryReference - conservativeUnitCost) / conservativeUnitCost
             : 0;
         var discoveryUnitProfit = Math.Max(0, netDiscoveryReference - conservativeUnitCost);
-        var rescueThreshold = Math.Max(settings.MinimumRoi * 0.85, 0.08);
+        var rescueThreshold = RareRescueMinimumMargin;
         var rareRescueSignal = settings.EnableMarketToMarket && !vendorContested && !localMarketSignal &&
                                variant.MinListing > 0 && affordableSingleUnit && discovery.Price > 0 &&
                                broaderVelocity > 0.001 && discoveryMargin >= rescueThreshold;
@@ -788,7 +778,7 @@ public sealed class BuyOpportunityScanner : IDisposable
             ? (netWorldAverage - item.VendorGilShopPrice.Value) / item.VendorGilShopPrice.Value
             : double.NegativeInfinity;
         var vendorMarketSignal = settings.EnableVendorToMarket && !isHq && item.VendorGilShopPrice is > 0 &&
-                                 variant.DailyVelocity > 0.001 && vendorMarketMargin >= settings.MinimumRoi * 0.60;
+                                 variant.DailyVelocity > 0.001 && vendorMarketMargin > 0;
 
         var vendorFloorSignal = settings.EnableMarketToVendor && item.VendorBuybackPrice > 0 && variant.MinListing > 0 &&
                                 variant.MinListing * (1 + ConservativeBuyerTaxRate) < item.VendorBuybackPrice;
@@ -805,7 +795,7 @@ public sealed class BuyOpportunityScanner : IDisposable
         {
             marketRough = 100 * (
                 0.42 * RoughRoiScore(localMargin) +
-                0.40 * ScoreProfit(localUnitProfit, settings.MinimumProfitGil) +
+                0.40 * ScoreProfit(localUnitProfit) +
                 0.18 * localVelocityScore);
             estimatedUnitProfit = localUnitProfit;
         }
@@ -814,7 +804,7 @@ public sealed class BuyOpportunityScanner : IDisposable
             // Rescue candidates are intentionally discounted before shortlist competition.
             marketRough = 100 * (
                 0.42 * RoughRoiScore(discoveryMargin) +
-                0.40 * ScoreProfit(discoveryUnitProfit, settings.MinimumProfitGil) +
+                0.40 * ScoreProfit(discoveryUnitProfit) +
                 0.18 * rescueVelocityScore) * discovery.Confidence * 0.80;
             estimatedUnitProfit = discoveryUnitProfit;
         }
@@ -825,7 +815,7 @@ public sealed class BuyOpportunityScanner : IDisposable
             var vendorUnitProfit = Math.Max(0, netWorldAverage - item.VendorGilShopPrice!.Value);
             vendorRough = 100 * (
                 0.55 * RoughRoiScore(vendorMarketMargin) +
-                0.30 * ScoreProfit(vendorUnitProfit, settings.MinimumProfitGil) +
+                0.30 * ScoreProfit(vendorUnitProfit) +
                 0.15 * localVelocityScore);
         }
 
@@ -852,10 +842,8 @@ public sealed class BuyOpportunityScanner : IDisposable
 
     private static DiscoveryReference GetDiscoveryReference(AggregatedVariant variant)
     {
-        // Evidence is hierarchical, not "pick the highest number". The v1.1.7 implementation
-        // could let an inflated region/listing median override a perfectly good local sale anchor,
-        // which polluted the finite deep shortlist and is the core reason full scans could collapse
-        // to only one surviving recommendation.
+        // Evidence is hierarchical, not "pick the highest number". An inflated region/listing
+        // median must never override a valid local sale anchor or pollute the finite deep shortlist.
         if (variant.AverageSalePrice > 0)
             return new DiscoveryReference(variant.AverageSalePrice, "world 4-day average sale", 1.00, true, true);
 
@@ -995,15 +983,10 @@ public sealed class BuyOpportunityScanner : IDisposable
 
     private ScanSettings SnapshotSettings()
     {
-        // Discovery is intentionally permissive on capital/risk. Profit, ROI, acquisition cost and
-        // holding time are findings filters in the UI rather than hidden reasons to omit results.
+        // Discovery scope is the only user-configured input here. Profit, ROI, acquisition cost and
+        // holding-time preferences are findings filters in the UI, never hidden discovery gates.
         var deepLimit = Math.Clamp(configuration.BuyDeepCandidateLimit, 20, 500);
         return new ScanSettings(
-            999_999_999,
-            0,
-            0,
-            3650,
-            100,
             deepLimit,
             configuration.BuyDiscoveryNameFilter ?? string.Empty,
             configuration.BuyDiscoveryIncludeNq,
@@ -1045,7 +1028,7 @@ public sealed class BuyOpportunityScanner : IDisposable
         {
             notes.Add($"Universalis broad-pass anchor: {candidate.DiscoveryReferenceLabel} at ~{candidate.DiscoveryReferencePrice:N0}g; local recent velocity was {candidate.Variant.DailyVelocity:0.##} unit(s)/day.");
             if (!candidate.DiscoveryReferenceIsWorldRecentSale)
-                notes.Add("That broader/listing-based value was discovery-only. The recommendation itself still had to pass current-world listings, 90-day current-world sales, ROI, profit and holding-time checks.");
+                notes.Add("That broader/listing-based value was discovery-only. The recommendation itself still had to pass current-world listings, 90-day current-world sales, positive ROI/profit and a measurable liquidation estimate.");
         }
 
         return notes;
@@ -1099,12 +1082,11 @@ public sealed class BuyOpportunityScanner : IDisposable
         return Clamp01((netExit - costPerUnit) / netExit);
     }
 
-    private static uint CalculateMaximumBuyPrice(uint netExit, double minimumRoi)
+    private static uint CalculateBreakEvenBuyPrice(uint netExit)
     {
         if (netExit == 0)
             return 0;
-        var grossAcquisitionCeiling = netExit / Math.Max(1.0, 1.0 + minimumRoi);
-        var preTax = grossAcquisitionCeiling / (1.0 + ConservativeBuyerTaxRate);
+        var preTax = netExit / (1.0 + ConservativeBuyerTaxRate);
         return (uint)Math.Max(1, Math.Floor(preTax));
     }
 
@@ -1112,18 +1094,17 @@ public sealed class BuyOpportunityScanner : IDisposable
         double roi,
         double profit,
         double liquidationDays,
-        double maxHoldingDays,
+        double liquidityHorizonDays,
         double priceAdvantage,
         double demand,
         double stability,
         double confidence,
         int acquisitionListingCount,
-        int exitListingCount,
-        double minimumProfit)
+        int exitListingCount)
     {
         var roiScore = Clamp01(Math.Log10(1 + Math.Max(0, roi) * 20) / Math.Log10(21));
-        var profitScore = ScoreProfit(profit, minimumProfit);
-        var liquidity = Math.Exp(-Math.Max(0, liquidationDays) / Math.Max(1, maxHoldingDays));
+        var profitScore = ScoreProfit(profit);
+        var liquidity = Math.Exp(-Math.Max(0, liquidationDays) / Math.Max(1, liquidityHorizonDays));
         var executionCount = Math.Max(1, acquisitionListingCount + exitListingCount);
         var friction = Clamp01(Math.Log10(executionCount) / Math.Log10(50));
 
@@ -1139,12 +1120,12 @@ public sealed class BuyOpportunityScanner : IDisposable
         return 100 * Clamp01(weighted);
     }
 
-    private static double ScoreProfit(double profit, double minimumProfit)
+    private static double ScoreProfit(double profit)
     {
         if (profit <= 0)
             return 0;
-        var reference = Math.Max(500, minimumProfit);
-        return Clamp01(0.5 + 0.25 * Math.Log10(profit / reference));
+        const double neutralProfitGil = 500;
+        return Clamp01(0.5 + 0.25 * Math.Log10(profit / neutralProfitGil));
     }
 
     private static int Stars(double score) => score switch
@@ -1254,11 +1235,6 @@ public sealed class BuyOpportunityScanner : IDisposable
     private static double Clamp01(double value) => Math.Clamp(value, 0.0, 1.0);
 
     private sealed record ScanSettings(
-        int BudgetGil,
-        int MinimumProfitGil,
-        double MinimumRoi,
-        double MaximumHoldingDays,
-        int MaxInvestmentPercentPerItem,
         int DeepCandidateLimit,
         string NameFilter,
         bool IncludeNq,
@@ -1318,13 +1294,6 @@ public sealed class BuyOpportunityScanner : IDisposable
         public List<MarketSale> Sales { get; } = new();
     }
 }
-
-
-
-
-
-
-
 
 
 

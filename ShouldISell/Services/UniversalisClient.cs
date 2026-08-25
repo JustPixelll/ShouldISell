@@ -16,7 +16,7 @@ public sealed class UniversalisClient : IDisposable
         this.log = log;
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(20);
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldISell", "2.3.4"));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldISell", "2.3.5"));
     }
 
     public void Dispose() => http.Dispose();

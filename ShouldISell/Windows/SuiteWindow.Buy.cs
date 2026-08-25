@@ -605,7 +605,9 @@ public sealed partial class SuiteWindow
             MetricCell(0, "Already owned", opportunity.ExistingQuantity.ToString("N0"), "Known stock at analysis time. It affects liquidation planning but not acquisition profit.");
             MetricCell(1, "Resulting position", (opportunity.ExistingQuantity + opportunity.AcquireQuantity).ToString("N0"), "Known stock plus the modeled acquisition.");
             MetricCell(2, "Recommended stack", opportunity.SuggestedExitStackSize.ToString("N0"), "Recommended units per exit listing.");
-            MetricCell(3, "Market freshness", opportunity.MarketFreshnessUtc is { } fresh ? FormatBuyAge(DateTimeOffset.UtcNow - fresh) + " ago" : "unknown", "Age of the listing snapshot used for this finding.");
+            MetricCell(3, "Break-even buy", opportunity.BreakEvenBuyPrice is { } ceiling ? $"{ceiling:N0}g/unit" : "—", "Highest pre-tax unit price that would still break even at the modeled after-tax exit. This is not a recommended target.");
+            ImGui.TableNextRow();
+            MetricCell(0, "Market freshness", opportunity.MarketFreshnessUtc is { } fresh ? FormatBuyAge(DateTimeOffset.UtcNow - fresh) + " ago" : "unknown", "Age of the listing snapshot used for this finding.");
             ImGui.EndTable();
         }
 

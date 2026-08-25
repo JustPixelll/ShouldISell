@@ -60,7 +60,7 @@ public sealed record BuyOpportunity
         double Roi,
         double? EstimatedFirstSaleDays,
         double? EstimatedLiquidationDays,
-        uint? MaximumRecommendedBuyPrice,
+        uint? BreakEvenBuyPrice,
         double UnitsPerDay,
         int SalesSampleCount,
         DateTimeOffset? MarketFreshnessUtc,
@@ -81,7 +81,7 @@ public sealed record BuyOpportunity
         this.SuggestedExitStackSize = SuggestedExitStackSize;
         this.Roi = Roi;
         this.EstimatedFirstSaleDays = EstimatedFirstSaleDays;
-        this.MaximumRecommendedBuyPrice = MaximumRecommendedBuyPrice;
+        this.BreakEvenBuyPrice = BreakEvenBuyPrice;
         this.UnitsPerDay = UnitsPerDay;
         this.SalesSampleCount = SalesSampleCount;
         this.MarketFreshnessUtc = MarketFreshnessUtc;
@@ -135,7 +135,11 @@ public sealed record BuyOpportunity
     public double Roi { get; init; }
     public double? EstimatedFirstSaleDays { get; init; }
     public double? EstimatedLiquidationDays { get; set; }
-    public uint? MaximumRecommendedBuyPrice { get; init; }
+    /// <summary>
+    /// Highest pre-tax acquisition unit price that still breaks even at the modeled after-tax exit.
+    /// This is a mathematical ceiling, not a recommendation or a hidden discovery filter.
+    /// </summary>
+    public uint? BreakEvenBuyPrice { get; init; }
     public double UnitsPerDay { get; init; }
     public int SalesSampleCount { get; init; }
     public DateTimeOffset? MarketFreshnessUtc { get; init; }
@@ -183,9 +187,9 @@ public sealed record BuyOpportunity
         var adjustedQuantity = Math.Min(originalQuantity, Math.Min(maxByListings, maxByTime));
         if (adjustedQuantity <= 0)
         {
-            // The normal findings filter excludes negative-profit rows, so an opportunity where even
-            // one additional vendor unit cannot meet the working-inventory horizon never becomes a
-            // user-facing recommendation.
+            // The scanner rejects this sentinel result before publishing its lane results, so an
+            // opportunity where even one additional vendor unit cannot meet the working-inventory
+            // horizon cannot leak into Buy, Should I Do? or IPC consumers.
             Stars = 1;
             OpportunityScore = 0;
             AcquireQuantity = 0;

@@ -278,7 +278,7 @@ public sealed class ExternalMarketDataBridge : IDisposable
                     row.Item.ItemId,
                     row.Item.Name,
                     Math.Max(550, 820 - i),
-                    $"Gather candidate: modeled {row.EstimatedGilPerActiveMinute:N0}g per active minute.",
+                    $"Gather candidate: modeled {row.EstimatedGilPerActiveMinute:N0}g of after-tax market value per active minute.",
                     row.OpportunityScore,
                     row.Confidence,
                     row.AnalysedAtUtc));

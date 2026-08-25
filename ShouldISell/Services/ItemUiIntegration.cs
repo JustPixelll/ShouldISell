@@ -61,7 +61,7 @@ public sealed class ItemUiIntegration : IDisposable
             LookupMenuItem("Should I Buy?", ShouldIModule.Buy, itemId, isHq, item.IsMarketable),
             LookupMenuItem("Should I Craft?", ShouldIModule.Craft, itemId, isHq, hasRecipe),
             LookupMenuItem("Should I Gather?", ShouldIModule.Gather, itemId, isHq, hasGather),
-            LookupMenuItem("Opportunities", ShouldIModule.Opportunities, itemId, isHq, item.IsMarketable),
+            LookupMenuItem("Should I Do?", ShouldIModule.Do, itemId, isHq, item.IsMarketable),
         };
     }
 
