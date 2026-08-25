@@ -28,11 +28,11 @@ public sealed partial class SuiteWindow
         ImGui.TextDisabled($"{rows.Count:N0} profitable validated recipe(s). Click an item for its acquisition plan.");
         if (ImGui.BeginTable("##craft-opportunities", 9,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable |
-                ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp,
+                ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Sortable,
                 new System.Numerics.Vector2(0, 360)))
         {
             ImGui.TableSetupScrollFreeze(0, 1);
-            ImGui.TableSetupColumn("Rating");
+            ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending);
             ImGui.TableSetupColumn("Item");
             ImGui.TableSetupColumn("Crafter");
             ImGui.TableSetupColumn("Economic profit");
@@ -42,6 +42,17 @@ public sealed partial class SuiteWindow
             ImGui.TableSetupColumn("Liquidation");
             ImGui.TableSetupColumn("Confidence");
             ImGui.TableHeadersRow();
+
+            rows = TableSort.Apply(rows, ImGui.TableGetSortSpecs(),
+                x => x.Stars,
+                x => x.Item.Name,
+                x => x.CrafterName,
+                x => x.EconomicProfit,
+                x => x.CashMaterialCost,
+                x => x.Roi,
+                x => x.UnitsPerDay,
+                x => x.EstimatedLiquidationDays,
+                x => x.Confidence);
 
             foreach (var row in rows)
             {
@@ -74,9 +85,9 @@ public sealed partial class SuiteWindow
         if (row.EstimatedProfitPerActiveMinute is { } gpm)
             ImGui.TextDisabled($"Generic craft-time model: ~{row.EstimatedActiveMinutes:0.##} active min/craft → ~{gpm:N0}g economic profit/active min. Treat the time figure as low-confidence.");
 
-        if (ImGui.BeginTable($"##craft-plan-{row.RecipeId}", 7, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
+        if (ImGui.BeginTable($"##craft-plan-{row.RecipeId}", 7, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable))
         {
-            ImGui.TableSetupColumn("Ingredient");
+            ImGui.TableSetupColumn("Ingredient", ImGuiTableColumnFlags.DefaultSort);
             ImGui.TableSetupColumn("Need");
             ImGui.TableSetupColumn("Owned");
             ImGui.TableSetupColumn("Best route");
@@ -84,7 +95,15 @@ public sealed partial class SuiteWindow
             ImGui.TableSetupColumn("Economic cost");
             ImGui.TableSetupColumn("Cash cost");
             ImGui.TableHeadersRow();
-            foreach (var ingredient in row.Ingredients)
+            var ingredients = TableSort.Apply(row.Ingredients, ImGui.TableGetSortSpecs(),
+                x => x.Item.Name,
+                x => x.QuantityRequired,
+                x => x.OwnedQuantity,
+                x => x.Route,
+                x => x.MarketUnitCost,
+                x => x.EconomicCost,
+                x => x.CashCost);
+            foreach (var ingredient in ingredients)
             {
                 ImGui.TableNextRow();
                 ImGui.TableNextColumn(); ImGui.TextUnformatted(ingredient.Item.Name);
@@ -126,11 +145,11 @@ public sealed partial class SuiteWindow
         ImGui.TextDisabled($"{rows.Count:N0} validated MIN/BTN opportunity(ies). Click an item for assumptions and locations.");
         if (ImGui.BeginTable("##gather-opportunities", 8,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable |
-                ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp,
+                ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Sortable,
                 new System.Numerics.Vector2(0, 360)))
         {
             ImGui.TableSetupScrollFreeze(0, 1);
-            ImGui.TableSetupColumn("Rating");
+            ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending);
             ImGui.TableSetupColumn("Item");
             ImGui.TableSetupColumn("Job");
             ImGui.TableSetupColumn("Location");
@@ -139,6 +158,16 @@ public sealed partial class SuiteWindow
             ImGui.TableSetupColumn("Units/day");
             ImGui.TableSetupColumn("Confidence");
             ImGui.TableHeadersRow();
+
+            rows = TableSort.Apply(rows, ImGui.TableGetSortSpecs(),
+                x => x.Stars,
+                x => x.Item.Name,
+                x => x.GathererName,
+                x => x.Locations.FirstOrDefault(),
+                x => x.IsTimed ? 2 : x.IsHidden ? 1 : 0,
+                x => x.EstimatedGilPerActiveMinute,
+                x => x.UnitsPerDay,
+                x => x.Confidence);
 
             foreach (var row in rows)
             {
@@ -200,12 +229,12 @@ public sealed partial class SuiteWindow
         ImGui.TextDisabled($"{rows.Count:N0} ranked action(s). Rating and confidence are separate: a spectacular but uncertain opportunity can still show low confidence.");
         if (ImGui.BeginTable("##unified-opportunities", 9,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable |
-                ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp,
+                ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Sortable,
                 new System.Numerics.Vector2(0, 470)))
         {
             ImGui.TableSetupScrollFreeze(0, 1);
             ImGui.TableSetupColumn("Type");
-            ImGui.TableSetupColumn("Rating");
+            ImGui.TableSetupColumn("Rating", ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending);
             ImGui.TableSetupColumn("Item");
             ImGui.TableSetupColumn("Action");
             ImGui.TableSetupColumn("Profit");
@@ -214,6 +243,17 @@ public sealed partial class SuiteWindow
             ImGui.TableSetupColumn("Liquidation");
             ImGui.TableSetupColumn("Confidence");
             ImGui.TableHeadersRow();
+
+            rows = TableSort.Apply(rows, ImGui.TableGetSortSpecs(),
+                x => x.Kind,
+                x => x.Stars,
+                x => x.ItemName,
+                x => x.Action,
+                x => x.ExpectedProfit,
+                x => x.Roi,
+                x => x.GilPerActiveMinute,
+                x => x.EstimatedLiquidationDays,
+                x => x.Confidence);
 
             foreach (var row in rows)
             {

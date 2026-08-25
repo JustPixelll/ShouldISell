@@ -10,22 +10,29 @@ namespace ShouldISell.Services;
 public sealed class TraderAnalyzer
 {
     private readonly IPlayerState playerState;
+    private readonly Configuration configuration;
     private readonly TraderStore traderStore;
     private readonly LocalStore sellStore;
     private readonly MarketDataCoordinator coordinator;
     private readonly GameItemCatalog catalog;
     private readonly object cacheGate = new();
     private TraderSnapshot? cached;
-    private DateTimeOffset cacheUntilUtc;
+    private ulong cachedContentId;
+    private uint cachedWorldId;
+    private long cachedTradeRevision = -1;
+    private long cachedSellRevision = -1;
+    private int cachedValueThreshold;
 
     public TraderAnalyzer(
         IPlayerState playerState,
+        Configuration configuration,
         TraderStore traderStore,
         LocalStore sellStore,
         MarketDataCoordinator coordinator,
         GameItemCatalog catalog)
     {
         this.playerState = playerState;
+        this.configuration = configuration;
         this.traderStore = traderStore;
         this.sellStore = sellStore;
         this.coordinator = coordinator;
@@ -34,9 +41,20 @@ public sealed class TraderAnalyzer
 
     public TraderSnapshot GetSnapshot(bool force = false)
     {
+        var contentId = playerState.IsLoaded ? playerState.ContentId : 0;
+        var worldId = playerState.IsLoaded ? playerState.CurrentWorld.RowId : 0;
+        var tradeRevision = traderStore.TradeRevision;
+        var sellRevision = sellStore.AnalysisRevision;
+        var valueThreshold = configuration.ValueThresholdGil;
+
         lock (cacheGate)
         {
-            if (!force && cached is not null && DateTimeOffset.UtcNow < cacheUntilUtc)
+            if (!force && cached is not null &&
+                cachedContentId == contentId &&
+                cachedWorldId == worldId &&
+                cachedTradeRevision == tradeRevision &&
+                cachedSellRevision == sellRevision &&
+                cachedValueThreshold == valueThreshold)
                 return cached;
         }
 
@@ -44,7 +62,11 @@ public sealed class TraderAnalyzer
         lock (cacheGate)
         {
             cached = snapshot;
-            cacheUntilUtc = DateTimeOffset.UtcNow.AddSeconds(2);
+            cachedContentId = contentId;
+            cachedWorldId = worldId;
+            cachedTradeRevision = tradeRevision;
+            cachedSellRevision = sellRevision;
+            cachedValueThreshold = valueThreshold;
         }
         return snapshot;
     }
@@ -82,10 +104,19 @@ public sealed class TraderAnalyzer
             events = events.OrderBy(x => x.AtUtc).ThenBy(x => x.Kind).ToList();
 
             var fifo = new List<MutableLot>();
+            var openingQuantity = 0;
+            var sawFirstPurchase = false;
             foreach (var tradeEvent in events)
             {
                 if (tradeEvent.Purchase is { } purchase)
                 {
+                    if (!sawFirstPurchase)
+                    {
+                        // Inventory that already existed when tracking began has no defensible cost
+                        // basis. Consume it before tracked lots so later sales cannot fabricate profit.
+                        openingQuantity = Math.Max(0, purchase.KnownOwnedQuantityBeforePurchase);
+                        sawFirstPurchase = true;
+                    }
                     fifo.Add(new MutableLot(purchase));
                     continue;
                 }
@@ -95,6 +126,9 @@ public sealed class TraderAnalyzer
                     continue;
 
                 var remainingSale = sale.Quantity;
+                var openingConsumed = Math.Min(remainingSale, openingQuantity);
+                openingQuantity -= openingConsumed;
+                remainingSale -= openingConsumed;
                 var consumed = new List<(MutableLot Lot, int Quantity)>();
                 foreach (var lot in fifo.Where(x => x.Remaining > 0).OrderBy(x => x.Purchase.PurchasedAtUtc))
                 {
@@ -108,7 +142,7 @@ public sealed class TraderAnalyzer
                     consumed.Add((lot, quantity));
                 }
 
-                unmatchedSaleUnits += Math.Max(0, remainingSale);
+                unmatchedSaleUnits += openingConsumed + Math.Max(0, remainingSale);
                 if (consumed.Count == 0)
                     continue;
 

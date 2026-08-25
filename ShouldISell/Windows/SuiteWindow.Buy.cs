@@ -615,15 +615,21 @@ public sealed partial class SuiteWindow
         ImGui.TextUnformatted("Acquisition package");
         if (opportunity.AcquisitionLots.Count > 0)
         {
-            if (ImGui.BeginTable("##buy-acquisition-lots", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable))
+            if (ImGui.BeginTable("##buy-acquisition-lots", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable))
             {
                 ImGui.TableSetupColumn("Listing ID");
                 ImGui.TableSetupColumn("Quantity");
-                ImGui.TableSetupColumn("Unit price");
+                ImGui.TableSetupColumn("Unit price", ImGuiTableColumnFlags.DefaultSort);
                 ImGui.TableSetupColumn("Buyer tax");
                 ImGui.TableSetupColumn("Total cost");
                 ImGui.TableHeadersRow();
-                foreach (var lot in opportunity.AcquisitionLots)
+                var acquisitionLots = TableSort.Apply(opportunity.AcquisitionLots, ImGui.TableGetSortSpecs(),
+                    x => x.ListingId,
+                    x => x.Quantity,
+                    x => x.UnitPrice,
+                    x => x.BuyerTax,
+                    x => x.TotalCost);
+                foreach (var lot in acquisitionLots)
                 {
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(lot.ListingId == 0 ? "unknown" : lot.ListingId.ToString());

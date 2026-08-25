@@ -99,6 +99,11 @@ public sealed unsafe class InventoryScanner
     public IReadOnlyList<uint> GetUniqueMarketableItemIds()
         => GetKnownOwnedStacks().Select(x => x.ItemId).Distinct().Order().ToList();
 
+    public int GetKnownOwnedQuantity(uint itemId, bool isHq)
+        => GetKnownOwnedStacks()
+            .Where(x => x.ItemId == itemId && x.IsHq == isHq)
+            .Sum(x => x.Quantity);
+
     public IReadOnlyList<uint> GetUniqueMarketablePlayerInventoryItemIds()
         => GetKnownOwnedStacks()
             .Where(x => x.OwnerKind == InventoryOwnerKind.Player && IsNormalPlayerInventory(x.Container))

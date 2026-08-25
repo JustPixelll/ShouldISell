@@ -11,6 +11,9 @@ public sealed class TraderStore
     private readonly IPluginLog log;
     private TraderDocument document;
     private bool dirty;
+    private long tradeRevision;
+
+    public long TradeRevision => Interlocked.Read(ref tradeRevision);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -59,8 +62,8 @@ public sealed class TraderStore
                 .OrderByDescending(x => x.PurchasedAtUtc)
                 .Take(25_000)
                 .ToList();
-            document.Version = Math.Max(document.Version, 3);
-            dirty = true;
+            document.Version = Math.Max(document.Version, 4);
+            MarkDirtyUnsafe(affectsTrades: true);
         }
 
         if (flush)
@@ -93,7 +96,7 @@ public sealed class TraderStore
                 .Take(50_000)
                 .ToList();
             document.Version = Math.Max(document.Version, 2);
-            dirty = true;
+            MarkDirtyUnsafe();
         }
 
         if (flush)
@@ -123,7 +126,7 @@ public sealed class TraderStore
                 AutoClassified = autoClassified,
                 Note = note,
             };
-            dirty = true;
+            MarkDirtyUnsafe();
         }
 
         if (flush)
@@ -169,7 +172,7 @@ public sealed class TraderStore
                 Note = note,
             };
             document.Version = Math.Max(document.Version, 3);
-            dirty = true;
+            MarkDirtyUnsafe();
             changed = true;
         }
 
@@ -203,7 +206,7 @@ public sealed class TraderStore
                 document.ExcludedPurchaseKeys.RemoveAll(x => string.Equals(x, key, StringComparison.Ordinal));
 
             document.Version = Math.Max(document.Version, 2);
-            dirty = true;
+            MarkDirtyUnsafe(affectsTrades: true);
         }
 
         if (flush)
@@ -235,6 +238,13 @@ public sealed class TraderStore
         }
     }
 
+    private void MarkDirtyUnsafe(bool affectsTrades = false)
+    {
+        dirty = true;
+        if (affectsTrades)
+            Interlocked.Increment(ref tradeRevision);
+    }
+
     private TraderDocument Load()
     {
         try
@@ -252,7 +262,7 @@ public sealed class TraderStore
 
     public sealed class TraderDocument
     {
-        public int Version { get; set; } = 3;
+        public int Version { get; set; } = 4;
         public List<PersonalPurchase> Purchases { get; set; } = new();
         public List<GilFlowEntry> GilFlows { get; set; } = new();
         public List<string> ExcludedPurchaseKeys { get; set; } = new();

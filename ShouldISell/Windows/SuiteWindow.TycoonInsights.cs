@@ -34,16 +34,23 @@ public sealed partial class SuiteWindow
 
         if (ImGui.CollapsingHeader("Top items by captured net sales##tycoon-sales-items", ImGuiTreeNodeFlags.DefaultOpen))
         {
-            if (ImGui.BeginTable("##tycoon-sales-items-table", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable))
+            if (ImGui.BeginTable("##tycoon-sales-items-table", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable))
             {
                 ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
                 ImGui.TableSetupColumn("Sales", ImGuiTableColumnFlags.WidthFixed, 60 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("Units", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
-                ImGui.TableSetupColumn("Net gil", ImGuiTableColumnFlags.WidthFixed, 95 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("Net gil", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 95 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("Avg net/unit", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("Last sale", ImGuiTableColumnFlags.WidthFixed, 125 * ImGuiHelpers.GlobalScale);
                 ImGui.TableHeadersRow();
-                foreach (var row in insight.TopSalesItems.Take(100))
+                var rows = TableSort.Apply(insight.TopSalesItems.Take(100), ImGui.TableGetSortSpecs(),
+                    x => x.ItemName,
+                    x => x.SaleEvents,
+                    x => x.Units,
+                    x => x.NetGil,
+                    x => x.AverageNetUnitPrice,
+                    x => x.LastSaleUtc);
+                foreach (var row in rows)
                 {
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(row.ItemName + (row.IsHq ? " [HQ]" : string.Empty));
@@ -60,11 +67,11 @@ public sealed partial class SuiteWindow
 
         if (ImGui.CollapsingHeader("Recent captured sales##tycoon-sales-recent", ImGuiTreeNodeFlags.DefaultOpen))
         {
-            var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY;
+            var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Sortable;
             if (ImGui.BeginTable("##tycoon-sales-recent-table", 9, flags, new Vector2(0, 280 * ImGuiHelpers.GlobalScale)))
             {
                 ImGui.TableSetupScrollFreeze(0, 1);
-                ImGui.TableSetupColumn("Sold", ImGuiTableColumnFlags.WidthFixed, 125 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("Sold", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 125 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
                 ImGui.TableSetupColumn("Retainer", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 50 * ImGuiHelpers.GlobalScale);
@@ -74,7 +81,17 @@ public sealed partial class SuiteWindow
                 ImGui.TableSetupColumn("Listing trace", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("Time listed", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
                 ImGui.TableHeadersRow();
-                foreach (var row in insight.RecentSales.Take(500))
+                var rows = TableSort.Apply(insight.RecentSales.Take(500), ImGui.TableGetSortSpecs(),
+                    x => x.SoldAtUtc,
+                    x => x.ItemName,
+                    x => x.RetainerName,
+                    x => x.Quantity,
+                    x => x.NetGil,
+                    x => x.NetUnitPrice,
+                    x => x.Source,
+                    x => x.ListingTraceable,
+                    x => x.TimeToSellDays);
+                foreach (var row in rows)
                 {
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(row.SoldAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
@@ -106,14 +123,14 @@ public sealed partial class SuiteWindow
             return;
         }
 
-        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY;
+        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Sortable;
         if (!ImGui.BeginTable("##tycoon-listing-insights", 12, flags, new Vector2(0, -1)))
             return;
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Retainer", ImGuiTableColumnFlags.WidthFixed, 95 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Started", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Started", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 120 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Price", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
@@ -124,7 +141,20 @@ public sealed partial class SuiteWindow
         ImGui.TableSetupColumn("Sale net", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
 
-        foreach (var row in insight.ListingInsights)
+        var rows = TableSort.Apply(insight.ListingInsights, ImGui.TableGetSortSpecs(),
+            x => x.SoldAtUtc is not null ? 2 : x.IsActive ? 1 : 0,
+            x => x.ItemName,
+            x => x.RetainerName,
+            x => x.FirstSeenUtc,
+            x => ((x.SoldAtUtc ?? x.RemovedAtUtc ?? DateTimeOffset.UtcNow) - x.FirstSeenUtc).TotalDays,
+            x => x.LastQuantity,
+            x => x.LastUnitPrice,
+            x => x.PriceChanges,
+            x => x.SizeChanges,
+            x => x.IsRelist,
+            x => x.SoldAtUtc,
+            x => x.SaleNetGil);
+        foreach (var row in rows)
         {
             var end = row.SoldAtUtc ?? row.RemovedAtUtc ?? DateTimeOffset.UtcNow;
             var elapsed = Math.Max(0, (end - row.FirstSeenUtc).TotalDays);

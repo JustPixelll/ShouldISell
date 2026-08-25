@@ -80,7 +80,7 @@ public sealed partial class MainWindow
 
         ImGui.Spacing();
         ImGui.TextDisabled("PER ITEM / HQ VARIANT — total difference applies the historical net/unit benchmark to the same number of units you actually sold.");
-        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY;
+        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Sortable;
         var height = Math.Min(300, 42 + benchmarks.Count * 25) * ImGuiHelpers.GlobalScale;
         if (!ImGui.BeginTable("##sales-market-benchmark-items", 9, flags, new Vector2(0, height)))
             return;
@@ -91,13 +91,23 @@ public sealed partial class MainWindow
         ImGui.TableSetupColumn("Your net/u", ImGuiTableColumnFlags.WidthFixed, 88 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("90d avg/u", ImGuiTableColumnFlags.WidthFixed, 88 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("vs avg/u", ImGuiTableColumnFlags.WidthFixed, 82 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Total vs avg", ImGuiTableColumnFlags.WidthFixed, 96 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Total vs avg", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 96 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("90d median/u", ImGuiTableColumnFlags.WidthFixed, 94 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Total vs median", ImGuiTableColumnFlags.WidthFixed, 105 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Market sample", ImGuiTableColumnFlags.WidthFixed, 105 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
 
-        foreach (var row in benchmarks.OrderByDescending(x => x.DeltaVsAverage))
+        var sortedBenchmarks = TableSort.Apply(benchmarks.OrderByDescending(x => x.DeltaVsAverage), ImGui.TableGetSortSpecs(),
+            x => x.Item.Name,
+            x => x.PersonalUnits,
+            x => x.PersonalAverageNetUnit,
+            x => x.HistoricalAverageNetUnit,
+            x => x.PersonalAverageNetUnit - x.HistoricalAverageNetUnit,
+            x => x.DeltaVsAverage,
+            x => x.HistoricalMedianNetUnit,
+            x => x.DeltaVsMedian,
+            x => x.MarketTransactions);
+        foreach (var row in sortedBenchmarks)
         {
             ImGui.TableNextRow();
             ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(row.Item.Name + (row.IsHq ? " [HQ]" : string.Empty));

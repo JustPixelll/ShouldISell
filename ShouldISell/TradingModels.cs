@@ -279,7 +279,8 @@ public sealed record PersonalPurchase(
     double? PredictedLiquidationDays,
     double? PredictedPackageProfit,
     DateTimeOffset? PredictionObservedAtUtc,
-    PurchaseSourceKind SourceKind = PurchaseSourceKind.MarketBoard);
+    PurchaseSourceKind SourceKind = PurchaseSourceKind.MarketBoard,
+    int KnownOwnedQuantityBeforePurchase = 0);
 
 public sealed record ClosedTrade(
     uint ItemId,

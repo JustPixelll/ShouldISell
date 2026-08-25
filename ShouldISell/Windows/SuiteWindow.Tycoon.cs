@@ -110,7 +110,7 @@ public sealed partial class SuiteWindow
         ImGui.TextDisabled("Realized return / spend = realized profit ÷ all tracked Trade purchase cost. Closed-trade ROI = realized profit ÷ the cost basis of sold tracked units only.");
         ImGui.TextDisabled("Closed-trade ROI is intentionally not capped: a 100g lot sold for 3,500g really is ~3,400% ROI on that closed lot, even if thousands of gil remain tied up in other open positions.");
         if (snapshot.RealizedRoi >= 10.0 && snapshot.RealizedCostBasis > 0)
-            ImGui.TextWrapped("Very high closed-trade ROI detected. Check Closed Trades to verify the FIFO attribution. FFXIV cannot tell Tycoon whether an identical sold unit came from a tracked purchase or from pre-existing crafted/gathered/gifted stock; if the sale was not from that purchase lot, mark the purchase Personal so Tycoon does not invent cost-basis profit.");
+            ImGui.TextWrapped("Very high closed-trade ROI detected. Check Closed Trades to verify the FIFO attribution. Tycoon consumes the known inventory that existed before the first tracked purchase before assigning later sales to costed lots; if a sale still came from an unobserved crafted/gathered/gifted unit, mark the purchase Personal.");
 
         if (snapshot.UnmatchedSaleUnits > 0)
             ImGui.TextDisabled($"{snapshot.UnmatchedSaleUnits:N0} sold unit(s) could not be assigned a tracked purchase cost basis. This is expected for sales from before Tycoon purchase tracking began, crafted/gathered stock, gifts, or offline purchase history that the game never exposed.");
@@ -128,7 +128,7 @@ public sealed partial class SuiteWindow
     private static void DrawOpenPositions(TraderSnapshot snapshot)
     {
         ImGui.TextDisabled("Trade positions are remaining FIFO purchase lots currently marked as Trade. Purchases marked Personal remain in your real spending/cashflow history but are excluded from trading P&L and open positions. Suggested exit/value comes from the current Should I Sell? model when the item is present in known inventory snapshots.");
-        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
+        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable;
         if (!ImGui.BeginTable("##tycoon-open", 9, flags, new Vector2(0, -1)))
             return;
         ImGui.TableSetupScrollFreeze(0, 1);
@@ -136,14 +136,24 @@ public sealed partial class SuiteWindow
         ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Listed", ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Avg cost", ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Cost basis", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Cost basis", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Suggested", ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Est. net", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Unrealized", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Strategy", ImGuiTableColumnFlags.WidthFixed, 130 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
 
-        foreach (var row in snapshot.OpenPositions)
+        var rows = TableSort.Apply(snapshot.OpenPositions, ImGui.TableGetSortSpecs(),
+            x => x.ItemName,
+            x => x.Quantity,
+            x => x.ListedQuantity,
+            x => x.AverageCost,
+            x => x.CostBasis,
+            x => x.SuggestedExitUnitPrice,
+            x => x.EstimatedNetMarketValue,
+            x => x.UnrealizedProfit,
+            x => x.PrimaryStrategy);
+        foreach (var row in rows)
         {
             ImGui.TableNextRow();
             ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(row.ItemName + (row.IsHq ? " [HQ]" : string.Empty));
@@ -162,11 +172,11 @@ public sealed partial class SuiteWindow
     private static void DrawClosedTrades(TraderSnapshot snapshot)
     {
         ImGui.TextDisabled("A row represents the tracked portion of one captured retainer-sale event. ROI on cost = (net revenue - matched FIFO cost basis) ÷ matched FIFO cost basis. If a sale consumed several purchase lots, their cost basis and predictions are quantity-weighted.");
-        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
+        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable;
         if (!ImGui.BeginTable("##tycoon-closed", 9, flags, new Vector2(0, -1)))
             return;
         ImGui.TableSetupScrollFreeze(0, 1);
-        ImGui.TableSetupColumn("Sold", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Sold", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 120 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 85 * ImGuiHelpers.GlobalScale);
@@ -177,7 +187,17 @@ public sealed partial class SuiteWindow
         ImGui.TableSetupColumn("Strategy", ImGuiTableColumnFlags.WidthFixed, 130 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
 
-        foreach (var row in snapshot.RecentClosedTrades)
+        var rows = TableSort.Apply(snapshot.RecentClosedTrades, ImGui.TableGetSortSpecs(),
+            x => x.SoldAtUtc,
+            x => x.ItemName,
+            x => x.Quantity,
+            x => x.CostBasis,
+            x => x.NetRevenue,
+            x => x.Profit,
+            x => x.Roi,
+            x => x.HoldingDays,
+            x => x.Strategy);
+        foreach (var row in rows)
         {
             ImGui.TableNextRow();
             ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(row.SoldAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
@@ -201,17 +221,25 @@ public sealed partial class SuiteWindow
             return;
         }
 
-        if (!ImGui.BeginTable("##tycoon-items", 7, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable))
+        if (!ImGui.BeginTable("##tycoon-items", 7, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable))
             return;
         ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Closed units", ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Revenue", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Profit", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Profit", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Closed ROI", ImGuiTableColumnFlags.WidthFixed, 75 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Avg hold", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
-        foreach (var row in snapshot.TopItems)
+        var rows = TableSort.Apply(snapshot.TopItems, ImGui.TableGetSortSpecs(),
+            x => x.ItemName,
+            x => x.ClosedUnits,
+            x => x.CostBasis,
+            x => x.NetRevenue,
+            x => x.Profit,
+            x => x.Roi,
+            x => x.AverageHoldingDays);
+        foreach (var row in rows)
         {
             ImGui.TableNextRow();
             ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(row.ItemName + (row.IsHq ? " [HQ]" : string.Empty));
@@ -233,17 +261,25 @@ public sealed partial class SuiteWindow
             return;
         }
 
-        if (!ImGui.BeginTable("##tycoon-strategies", 7, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable))
+        if (!ImGui.BeginTable("##tycoon-strategies", 7, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable))
             return;
         ImGui.TableSetupColumn("Strategy", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Sale events", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Units", ImGuiTableColumnFlags.WidthFixed, 60 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Profit", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Profit", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Closed ROI", ImGuiTableColumnFlags.WidthFixed, 75 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Avg hold", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
-        foreach (var row in snapshot.Strategies)
+        var rows = TableSort.Apply(snapshot.Strategies, ImGui.TableGetSortSpecs(),
+            x => x.Strategy,
+            x => x.SaleEvents,
+            x => x.ClosedUnits,
+            x => x.CostBasis,
+            x => x.Profit,
+            x => x.Roi,
+            x => x.AverageHoldingDays);
+        foreach (var row in rows)
         {
             ImGui.TableNextRow();
             ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(row.Strategy);

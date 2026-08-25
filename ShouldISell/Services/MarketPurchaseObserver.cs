@@ -13,6 +13,7 @@ public sealed class MarketPurchaseObserver : IDisposable
     private readonly IMarketBoard marketBoard;
     private readonly IPlayerState playerState;
     private readonly TraderStore store;
+    private readonly InventoryScanner inventory;
     private readonly BuyOpportunityScanner buyScanner;
     private readonly IPluginLog log;
     private readonly object gate = new();
@@ -22,12 +23,14 @@ public sealed class MarketPurchaseObserver : IDisposable
         IMarketBoard marketBoard,
         IPlayerState playerState,
         TraderStore store,
+        InventoryScanner inventory,
         BuyOpportunityScanner buyScanner,
         IPluginLog log)
     {
         this.marketBoard = marketBoard;
         this.playerState = playerState;
         this.store = store;
+        this.inventory = inventory;
         this.buyScanner = buyScanner;
         this.log = log;
 
@@ -48,6 +51,7 @@ public sealed class MarketPurchaseObserver : IDisposable
 
         var itemId = NormalizeItemId(request.CatalogId);
         var now = DateTimeOffset.UtcNow;
+        var knownOwnedQuantity = inventory.GetKnownOwnedQuantity(itemId, request.IsHq);
         lock (gate)
         {
             pending.RemoveAll(x => now - x.RequestedAtUtc > TimeSpan.FromSeconds(30));
@@ -60,6 +64,7 @@ public sealed class MarketPurchaseObserver : IDisposable
                 request.PricePerUnit,
                 request.TotalTax,
                 request.ListingId,
+                knownOwnedQuantity,
                 now));
         }
     }
@@ -105,7 +110,9 @@ public sealed class MarketPurchaseObserver : IDisposable
                 prediction?.SuggestedExitUnitPrice,
                 prediction?.EstimatedLiquidationDays,
                 prediction?.PotentialPackageProfit,
-                prediction?.AnalysedAtUtc);
+                prediction?.AnalysedAtUtc,
+                PurchaseSourceKind.MarketBoard,
+                matched.KnownOwnedQuantityBeforePurchase);
 
             if (store.AddPurchase(record))
                 log.Information(
@@ -130,5 +137,6 @@ public sealed class MarketPurchaseObserver : IDisposable
         uint UnitPrice,
         uint TotalTax,
         ulong ListingId,
+        int KnownOwnedQuantityBeforePurchase,
         DateTimeOffset RequestedAtUtc);
 }

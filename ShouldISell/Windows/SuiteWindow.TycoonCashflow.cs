@@ -107,19 +107,25 @@ public sealed partial class SuiteWindow
         }
 
         ImGui.TextDisabled("RECENT DIRECT WALLET CHANGES");
-        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
+        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable;
         if (!ImGui.BeginTable("##tycoon-cashflow-ledger", 5, flags, new Vector2(0, 430 * ImGuiHelpers.GlobalScale)))
             return;
 
         ImGui.TableSetupScrollFreeze(0, 1);
-        ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 120 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Delta", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Balance", ImGuiTableColumnFlags.WidthFixed, 105 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Source evidence", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Note", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableHeadersRow();
 
-        foreach (var flow in flows.Take(1000))
+        var sortedFlows = TableSort.Apply(flows.Take(1000), ImGui.TableGetSortSpecs(),
+            x => x.AtUtc,
+            x => x.Amount,
+            x => x.BalanceAfter,
+            x => x.Source,
+            x => x.Note);
+        foreach (var flow in sortedFlows)
         {
             ImGui.TableNextRow();
             ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(flow.AtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
@@ -153,21 +159,29 @@ public sealed partial class SuiteWindow
             return;
         }
 
-        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable;
+        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable;
         if (!ImGui.BeginTable("##tycoon-purchase-ledger", 8, flags, new Vector2(0, -1)))
             return;
         ImGui.TableSetupScrollFreeze(0, 1);
-        ImGui.TableSetupColumn("Bought", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Bought", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.DefaultSort | ImGuiTableColumnFlags.PreferSortDescending, 120 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Total cost", ImGuiTableColumnFlags.WidthFixed, 95 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Strategy", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Position", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.NoSort, 120 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
 
-        foreach (var purchase in purchases.Take(5000))
+        var sortedPurchases = TableSort.Apply(purchases.Take(5000), ImGui.TableGetSortSpecs(),
+            x => x.PurchasedAtUtc,
+            x => plugin.Catalog.Get(x.ItemId).Name,
+            x => x.Quantity,
+            x => x.TotalCost,
+            x => x.SourceKind,
+            x => x.Strategy,
+            x => plugin.TraderStore.IsPurchaseExcluded(x));
+        foreach (var purchase in sortedPurchases)
         {
             var key = plugin.TraderStore.GetPurchaseKey(purchase);
             var excluded = plugin.TraderStore.IsPurchaseExcluded(purchase);
@@ -291,7 +305,8 @@ public sealed partial class SuiteWindow
                 predictionQuantityMatches ? prediction?.EstimatedLiquidationDays : null,
                 predictedProfit,
                 prediction?.AnalysedAtUtc,
-                PurchaseSourceKind.VendorManual);
+                PurchaseSourceKind.VendorManual,
+                Math.Max(0, plugin.Inventory.GetKnownOwnedQuantity(vendorPurchaseItemId, false) - vendorPurchaseQuantity));
 
             if (plugin.TraderStore.AddPurchase(purchase, flush: false))
             {
