@@ -1,43 +1,85 @@
-# Should I? legacy build notes — v0.8.0
+# Should I? development and review guide
 
-The ChatGPT execution environment used to assemble this source does not contain the .NET SDK or Dalamud runtime, so run the normal Windows build and send back compiler output if API 15 reports a binding mismatch.
+## Build
 
-## New API/UI touchpoints to validate
+Should I? targets Dalamud API 15 and .NET 10.
 
-1. `ITextureProvider.GetFromGameIcon(new GameIconLookup(iconId, isHq))` + `TryGetWrap(...)` — item icon in the detail inspector.
-2. `ImGui.Selectable(... SpanAllColumns | AllowItemOverlap ...)` — full-row hover/click hit target in tables.
-3. `ImGui.TableSetBgColor(... RowBg0 ...)` — whole-row hover highlight.
-4. Custom table header row using `ImGui.TableHeader(...)` + hover tooltips — verify sorting still responds normally to header clicks.
-5. `ImGui.IsItemClicked(ImGuiMouseButton.Right)` + `ImGui.SetClipboardText(...)` — right-click Suggested price clipboard shortcut.
-6. `ImGui.DragLong(...)` — expected-net / payout filter bounds.
-7. Current Listings now uses 13 columns and horizontal scrolling.
+```powershell
+dotnet restore .\ShouldISell\ShouldISell.csproj --locked-mode
+dotnet build .\ShouldISell\ShouldISell.csproj --configuration Release --no-restore
+```
 
-## First validation cases
+The Windows GitHub Actions build is authoritative when a local environment lacks the Dalamud/.NET toolchain.
 
-- Hover a row in both main tables: the entire row should highlight, not only the cell under the cursor.
-- Click an item name, qty, median or other non-rating cell: the same detail inspector should open.
-- Click the same row again or press **Back to full table**: the detail panel should disappear and the table reclaim the full height.
-- Detail inspector should show the correct FFXIV item icon, including HQ lookup where applicable.
-- Right-click a Suggested price, then paste into Notepad/market-board field: clipboard should contain digits only (for example `1234`, not `1,234g`).
-- Header hover tooltips should explain every column while normal header sorting still works.
-- Owned filters should correctly combine rating range, star range and Est. net range.
-- Current Listings filters should combine rating range, star range and expected current payout range.
-- Current Listings should show Listed qty, Listed price and Exp. payout; Exp. payout should equal `qty × floor(price × 0.95)`.
-- With Meaningful listing value = 10,000g, a recommended stack of 1 × ~100g should receive very little Value credit even if the player owns 100+ units.
-- A genuinely excellent high-value/liquid item can remain 5★ while displaying, for example, a strict score in the high 80s/90s.
-- Open/rebuild Current Listings repeatedly and verify market depth does not shrink: own-listing exclusion now clones the market snapshot before removal.
+## Code map
 
-## Score semantics changed in v0.8
+| Area | Primary files |
+|---|---|
+| Composition and commands | `Plugin.cs`, `Configuration.cs` |
+| Shared market/inventory domain | `Models.cs`, `GameItemCatalog.cs`, `InventoryScanner.cs`, `LocalStore.cs` |
+| Sell pricing and scoring | `ScoreCalculator.cs`, `MarketDataCoordinator*.cs`, `MainWindow*.cs` |
+| Buy discovery and live overlay | `BuyOpportunityScanner.cs`, `TradingModels.cs`, `SuiteWindow.Buy*.cs` |
+| Craft/Gather/Should I Do? | `ProductionOpportunityScanner.cs`, `ProductionModels.cs`, `SuiteWindow.Production.cs` |
+| Purchases, FIFO and cashflow | `MarketPurchaseObserver.cs`, `TraderStore.cs`, `TraderAnalyzer.cs`, `GilLedgerTracker.cs` |
+| Sales/listing insight | `RetainerSale*Observer.cs`, `ListingHistoryTracker.cs`, `TycoonInsightService.cs` |
+| Native UI integration | `ItemTooltipAugmenter.cs`, `ItemUiIntegration.cs`, `RetainerListingAttentionOverlay.cs` |
 
-`ValueThresholdGil` is retained for config compatibility, but its meaning is now **meaningful expected after-tax payout of one recommended listing**, not per-unit price and not whole-stock value. Existing numeric settings are intentionally preserved during migration.
+`DESIGN.md` documents model meaning and reviewer invariants.
 
-The displayed numeric score is `SellRating.OpportunityScore` (strict/unexpanded). `RawScore` still drives the 1–5 star calibration. This separation is intentional.
+## Manual validation checklist
 
+### Startup and shutdown
 
-## New v0.8 validation cases
+- Fresh configuration opens setup; existing configuration opens normally.
+- `/shouldi` and every module command select the expected tab.
+- `/shouldi opportunities` still opens Should I Do? for compatibility.
+- Unloading/reloading produces no hook, IPC or event-handler errors.
 
-- Open a retainer Market Board listing, return to Owned Items, and verify the matching item/HQ row is gold-tinted.
-- For a case like 105 owned with recommended stack 1, `Est. net` should equal roughly one net unit, not 105 net units.
-- The detail inspector should still show the full known-position value separately.
-- The Value component should follow the recommended-listing payout.
-- A recommendation requiring ~100 separate listings should receive a mild execution-friction note/penalty without automatically losing 5★ if the market itself is excellent.
+### Inventory and Sell
+
+- Open player inventory, saddlebags and multiple retainers; ownership must not disappear when a retainer unloads.
+- Refresh an owned-item Universalis scope and verify current/history timestamps update.
+- Rebuild Current Listings repeatedly; own-listing exclusion must not shrink shared market depth.
+- Confirm sorting, selection, price copying, stack guidance and detail back navigation.
+
+### Buy
+
+- Run Market Board and Vendor discovery independently with different scopes.
+- Confirm discovery does not silently apply findings profit/ROI/cost/holding filters.
+- Verify one oversized Market-to-Vendor lot does not hide a later affordable profitable lot.
+- Open a finding after a newer live snapshot; listing identity changes must lower confidence/rating explicitly.
+- Confirm successful Market Board buys record exact cost/tax once; failed requests create no purchase.
+- Confirm Vendor recommendations top up working inventory and hide while already listed.
+
+### Craft, Gather and Should I Do?
+
+- Craft/Gather result tables consume remaining height and open details as separate pages.
+- Verify Market Board ingredient economic cost includes conservative buyer tax while raw ask stays visible.
+- Verify owned materials lower cash cost but not economic cost.
+- Validate an old sparse sample does not derive velocity only from its short historical burst.
+- Gather labels say market value per active minute, not guaranteed income.
+- Should I Do? merges current-world cached results and remains sortable/open-ended.
+
+### Tycoon
+
+- Purchases of previously owned variants preserve opening inventory ahead of tracked FIFO lots.
+- Excluding/restoring a purchase invalidates Trader analytics without a timer.
+- New sale/listing evidence invalidates insights; unchanged frames reuse cached snapshots.
+- Exact history reconciles a matching passive announcement rather than duplicating it.
+- Unknown wallet deltas remain unclassified unless exact purchase evidence supports attribution.
+
+### Native integrations
+
+- Tooltip integration restores only its own added height and coexists with other tooltip plugins.
+- Context-menu destinations and enabled states are correct.
+- The retainer overlay does not alter FFXIV nodes or issue market requests.
+
+## Pull-request review checklist
+
+- Read the full diff; run `git diff --check` and search for stale names/version labels.
+- Confirm row-oriented data tables expose click-to-sort headers. Most use `ImGuiTableFlags.Sortable` with matching `TableSort.Apply` selectors; Buy uses its documented custom header sorter so header help and sort direction stay visible together.
+- Check async scans discard results after world changes and release semaphores in `finally`.
+- Check persistence mutations occur under their lock and failures re-mark data dirty.
+- Check event/IPC registrations have corresponding disposal paths.
+- Build Release with the locked dependency graph.
+- Do not update the official Dalamud submission commit until the maintainer explicitly approves it.

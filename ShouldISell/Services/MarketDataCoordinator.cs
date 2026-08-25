@@ -2,7 +2,7 @@ using Dalamud.Plugin.Services;
 
 namespace ShouldISell.Services;
 
-public sealed partial class MarketDataCoordinator
+public sealed partial class MarketDataCoordinator : IDisposable
 {
     private readonly IPlayerState playerState;
     private readonly Configuration configuration;
@@ -14,6 +14,7 @@ public sealed partial class MarketDataCoordinator
     private readonly IPluginLog log;
     private readonly SemaphoreSlim refreshGate = new(1, 1);
     private uint acceptingWorldId;
+    private readonly object ratingCacheGate = new();
     private readonly Dictionary<RatingCacheKey, SellRating?> ratingCache = new();
 
     private readonly record struct RatingCacheKey(
@@ -56,6 +57,12 @@ public sealed partial class MarketDataCoordinator
     public bool IsFetching { get; private set; }
     public string FetchStatus { get; private set; } = "Idle";
     public DateTimeOffset? LastFetchCompletedUtc { get; private set; }
+
+    public void Dispose()
+    {
+        universalis.CurrentBatchReceived -= OnCurrentBatchReceived;
+        universalis.HistoryBatchReceived -= OnHistoryBatchReceived;
+    }
 
     public async Task RefreshOwnedFromUniversalisAsync(bool force = false, CancellationToken cancellationToken = default)
     {
@@ -296,20 +303,25 @@ public sealed partial class MarketDataCoordinator
             excludedMarketSlot,
             excludedPrice);
 
-        if (ratingCache.TryGetValue(key, out var cached))
-            return cached;
+        lock (ratingCacheGate)
+        {
+            if (ratingCache.TryGetValue(key, out var cached))
+                return cached;
+        }
 
         var rating = scores.Calculate(
             item, isHq, market, configuration.ValueThresholdGil, Math.Max(1, quantity));
-        ratingCache[key] = rating;
-
-        // Keep the cache bounded across inventory/price churn. Market timestamps in the key make old
-        // entries naturally obsolete, so a simple bounded clear is sufficient here.
-        if (ratingCache.Count > 4_000)
+        lock (ratingCacheGate)
         {
-            var keep = rating;
-            ratingCache.Clear();
-            ratingCache[key] = keep;
+            ratingCache[key] = rating;
+
+            // Keep the cache bounded across inventory/price churn. Market timestamps in the key make
+            // old entries naturally obsolete, so a bounded clear is sufficient here.
+            if (ratingCache.Count > 4_000)
+            {
+                ratingCache.Clear();
+                ratingCache[key] = rating;
+            }
         }
 
         return rating;
@@ -405,4 +417,3 @@ public sealed partial class MarketDataCoordinator
             ? $"{ownerName} / {container} x{quantity}"
             : $"{container} x{quantity}";
 }
-

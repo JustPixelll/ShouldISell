@@ -12,8 +12,10 @@ public sealed class LocalStore
     private StoreDocument document;
     private bool dirty;
     private long analysisRevision;
+    private long salesRevision;
 
     public long AnalysisRevision => Interlocked.Read(ref analysisRevision);
+    public long SalesRevision => Interlocked.Read(ref salesRevision);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -194,7 +196,7 @@ public sealed class LocalStore
 
             document.PersonalSales.Add(normalized);
             TrimPersonalSalesUnsafe();
-            MarkDirtyUnsafe();
+            MarkDirtyUnsafe(affectsSales: true);
             return true;
         }
     }
@@ -248,7 +250,7 @@ public sealed class LocalStore
             if (changed > 0)
             {
                 TrimPersonalSalesUnsafe();
-                MarkDirtyUnsafe();
+                MarkDirtyUnsafe(affectsSales: true);
             }
         }
 
@@ -448,11 +450,13 @@ public sealed class LocalStore
         }
     }
 
-    private void MarkDirtyUnsafe(bool affectsAnalysis = true)
+    private void MarkDirtyUnsafe(bool affectsAnalysis = true, bool affectsSales = false)
     {
         dirty = true;
         if (affectsAnalysis)
             Interlocked.Increment(ref analysisRevision);
+        if (affectsSales)
+            Interlocked.Increment(ref salesRevision);
     }
 
     private static bool InventoryContentsEqual(InventoryContainerSnapshot left, InventoryContainerSnapshot right)

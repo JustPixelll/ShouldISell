@@ -6,8 +6,8 @@ using Lumina.Excel.Sheets;
 namespace ShouldISell.Services;
 
 /// <summary>
-/// Shared production-economy engine behind Should I Craft?, Should I Gather? and the unified
-/// Opportunities view. Material economics are market-value based: inventory reduces cash required,
+/// Shared production-economy engine behind Should I Craft?, Should I Gather? and Should I Do?.
+/// Material economics are market-value based: inventory reduces cash required,
 /// but owned materials still retain their opportunity cost.
 /// </summary>
 public sealed class ProductionOpportunityScanner : IDisposable
@@ -15,6 +15,7 @@ public sealed class ProductionOpportunityScanner : IDisposable
     private const int BatchSize = 100;
     private const int DeepHistoryLimit = 180;
     private const int MaxCraftRecursionDepth = 5;
+    private const double ConservativeBuyerTaxRate = 0.05;
 
     private readonly IPlayerState playerState;
     private readonly IDataManager data;
@@ -43,7 +44,7 @@ public sealed class ProductionOpportunityScanner : IDisposable
 
         http.BaseAddress = new Uri("https://universalis.app/");
         http.Timeout = TimeSpan.FromSeconds(30);
-        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "2.2.0"));
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ShouldI", "2.3.5"));
     }
 
     public bool IsScanning { get; private set; }
@@ -140,7 +141,7 @@ public sealed class ProductionOpportunityScanner : IDisposable
                 gather.EstimatedGilPerActiveMinute,
                 null,
                 $"Gather {gather.Item.Name} as {gather.GathererName}.",
-                $"Modeled ~{gather.EstimatedGilPerActiveMinute:N0}g per active minute from the current generic baseline; market velocity {gather.UnitsPerDay:0.##}/day.",
+                $"Modeled ~{gather.EstimatedGilPerActiveMinute:N0}g of after-tax market value per active minute from the current generic baseline; market velocity {gather.UnitsPerDay:0.##}/day.",
                 gather.AnalysedAtUtc));
         }
 
@@ -424,7 +425,7 @@ public sealed class ProductionOpportunityScanner : IDisposable
             var typeName = pointBase.GatheringType.Value.Name.ToString();
             var classJobId = GathererClassJobId(typeName);
             if (classJobId == 0 || !classJobs.TryGetRow(classJobId, out var classJob))
-                continue; // Rod fishing/spearfishing deliberately remain outside the reliable v1 ranker.
+                continue; // Rod fishing/spearfishing deliberately remain outside the current reliable ranker.
 
             var playerLevel = playerState.GetClassJobLevel(classJob);
             var requiredLevel = (int)pointBase.GatheringLevel;
@@ -606,20 +607,13 @@ public sealed class ProductionOpportunityScanner : IDisposable
         if (velocity <= 0)
             return null;
 
-        // v1 intentionally models an interval rather than pretending exact gathering throughput.
-        // Personal observed-session telemetry can replace this generic baseline later.
+        // This is one deliberately simple baseline, not a claimed throughput range. Uncertainty
+        // remains in confidence until node topology or personal session telemetry can support it.
         var baseRate = source.IsHidden ? 7.5 : 10.5;
         var levelHeadroom = Math.Max(0, source.PlayerLevel - source.RequiredLevel);
         baseRate *= 1.0 + Math.Min(0.20, levelHeadroom / 500.0);
-        // Keep the legacy fields equal to the baseline until a real range can be derived
-        // from node topology or observed personal sessions. Arbitrary uncertainty bands
-        // belong in confidence, not in fake numerical precision.
-        var lowRate = baseRate;
-        var highRate = baseRate;
         var netUnitValue = salePrice * (1.0 - ScoreCalculator.MarketSellerTaxRate);
         var gilPerMinute = netUnitValue * baseRate;
-        var gilPerMinuteLow = netUnitValue * lowRate;
-        var gilPerMinuteHigh = netUnitValue * highRate;
 
         var volatility = history?.Volatility;
         var samples = history?.SampleCount ?? 0;
@@ -634,7 +628,7 @@ public sealed class ProductionOpportunityScanner : IDisposable
         {
             $"Generic active-yield baseline: {baseRate:0.0} item(s)/active minute. A numerical range is withheld until node topology or personal telemetry can support it.",
             "Node-to-node movement, GP rotation, gear and player execution are not yet learned personally; that uncertainty is represented by confidence.",
-            "Gil/minute uses the modeled active gathering time only. Waiting for a timed node is shown as availability friction, not charged as active play time.",
+            "Value/minute uses modeled active gathering time only. It describes after-tax market value created, not guaranteed realized income. Waiting for a timed node is availability friction, not active play time.",
         };
         if (source.IsTimed)
             notes.Add("Timed/ephemeral availability detected in game data; this opportunity can be excellent while active but is not always immediately available.");
@@ -660,11 +654,7 @@ public sealed class ProductionOpportunityScanner : IDisposable
             salePrice,
             velocity,
             baseRate,
-            lowRate,
-            highRate,
             gilPerMinute,
-            gilPerMinuteLow,
-            gilPerMinuteHigh,
             volatility,
             samples,
             lastSale,
@@ -729,8 +719,8 @@ public sealed class ProductionOpportunityScanner : IDisposable
         {
             best = new ResolvedCost(
                 ProductionAcquisitionRoute.MarketBoard,
-                quote.MinListing,
-                $"Buy at the current broad-pass minimum ask (~{quote.MinListing:N0}g/unit).");
+                quote.MinListing * (1.0 + ConservativeBuyerTaxRate),
+                $"Buy at the current broad-pass minimum ask (~{quote.MinListing:N0}g/unit) plus a conservative 5% buyer tax.");
         }
 
         var vendor = catalog.Get(itemId).VendorGilShopPrice;
@@ -788,14 +778,16 @@ public sealed class ProductionOpportunityScanner : IDisposable
         CancellationToken token)
     {
         var result = new Dictionary<uint, List<HistorySaleWork>>();
-        var entriesWithin = 90 * 24 * 60 * 60;
+        var analysedAtUtc = DateTimeOffset.UtcNow;
+        var entriesWithinSeconds = 90 * 24 * 60 * 60;
+        var statsWithinMilliseconds = entriesWithinSeconds * 1000L;
         foreach (var batch in Batch(ids))
         {
             if (batch.Count == 0)
                 continue;
             var joined = string.Join(',', batch);
             using var response = await http.GetAsync(
-                $"api/v2/history/{worldId}/{joined}?entries=1800&entriesWithin={entriesWithin}&statsWithin={entriesWithin}", token);
+                $"api/v2/history/{worldId}/{joined}?entriesToReturn=1800&entriesWithin={entriesWithinSeconds}&statsWithin={statsWithinMilliseconds}", token);
             response.EnsureSuccessStatusCode();
             await using var stream = await response.Content.ReadAsStreamAsync(token);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: token);
@@ -809,7 +801,7 @@ public sealed class ProductionOpportunityScanner : IDisposable
                 foreach (var entry in entries.EnumerateArray())
                 {
                     if (GetBool(entry, "hq"))
-                        continue; // v1 production model is explicitly NQ-to-NQ for deterministic comparisons.
+                        continue; // The production model is explicitly NQ-to-NQ for deterministic comparisons.
                     var price = GetUInt(entry, "pricePerUnit");
                     var quantity = GetUInt(entry, "quantity");
                     var timestamp = GetLong(entry, "timestamp");
@@ -821,10 +813,12 @@ public sealed class ProductionOpportunityScanner : IDisposable
             await Task.Delay(80, token);
         }
 
-        return result.ToDictionary(x => x.Key, x => CalculateHistoryStats(x.Value));
+        return result.ToDictionary(x => x.Key, x => CalculateHistoryStats(x.Value, analysedAtUtc));
     }
 
-    private static HistoryStats CalculateHistoryStats(IReadOnlyList<HistorySaleWork> sales)
+    private static HistoryStats CalculateHistoryStats(
+        IReadOnlyList<HistorySaleWork> sales,
+        DateTimeOffset analysedAtUtc)
     {
         if (sales.Count == 0)
             return new HistoryStats(0, 0, 0, 0, null);
@@ -836,9 +830,11 @@ public sealed class ProductionOpportunityScanner : IDisposable
         var mean = prices.Average();
         var variance = prices.Select(x => (x - mean) * (x - mean)).Average();
         var volatility = mean > 0 ? Math.Sqrt(variance) / mean : 1;
-        var last = sales.Max(x => x.SoldAtUtc);
         var first = sales.Min(x => x.SoldAtUtc);
-        var observedDays = Math.Clamp((last - first).TotalDays, 7, 90);
+        var last = sales.Max(x => x.SoldAtUtc);
+        // Measure demand over the elapsed observation window through analysis time. Using only
+        // first-to-last sale spacing made an old burst look recent and overstated sparse markets.
+        var observedDays = Math.Clamp((analysedAtUtc - first).TotalDays, 7, 90);
         var unitsPerDay = sales.Sum(x => (long)x.Quantity) / observedDays;
         return new HistoryStats(conservative, unitsPerDay, volatility, sales.Count, last);
     }

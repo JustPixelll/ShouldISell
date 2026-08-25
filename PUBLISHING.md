@@ -6,7 +6,7 @@ Target: **new plugin → `testing/live`**.
 
 - [x] Public source repository.
 - [x] `Dalamud.NET.Sdk/15.0.0`.
-- [x] Deterministic semantic version (`2.3.1.0`).
+- [x] Deterministic semantic version kept in the project file.
 - [x] Release dependency lock committed.
 - [x] Dalamud Windowing API for plugin windows.
 - [x] Square `images/icon.png` in accepted size range.
@@ -18,7 +18,7 @@ Target: **new plugin → `testing/live`**.
 
 ## Human test pass
 
-Before approval, personally verify fresh install/setup, each module command, inventory/retainer observation, Universalis refresh scopes, Sell/Buy/Craft/Gather/Opportunities/Tycoon, Market Board purchase tracking, vendor purchase recording, item tooltip coexistence, context-menu coexistence, unload/reload behavior, world/character switching and Dalamud logs.
+Before approval, personally verify fresh install/setup, each module command, inventory/retainer observation, Universalis refresh scopes, Sell/Buy/Craft/Gather/Should I Do?/Tycoon, Market Board purchase tracking, vendor purchase recording, item tooltip coexistence, context-menu coexistence, unload/reload behavior, world/character switching and Dalamud logs.
 
 ## AI disclosure
 
@@ -36,7 +36,7 @@ repository = "https://github.com/JustPixelll/ShouldISell.git"
 commit = "REPLACE_WITH_FINAL_TESTED_COMMIT_SHA"
 owners = ["JustPixelll"]
 project_path = "ShouldISell"
-changelog = "Initial testing release of Should I?: Sell, Buy, Craft, Gather, Opportunities, Tycoon, native item-tooltip insights and inventory lookups."
+changelog = "Initial testing release of Should I?: Sell, Buy, Craft, Gather, Should I Do?, Tycoon, native item-tooltip insights and inventory lookups."
 ```
 
 ## PR description
@@ -44,7 +44,7 @@ changelog = "Initial testing release of Should I?: Sell, Buy, Craft, Gather, Opp
 ```markdown
 ## Should I?
 
-FFXIV economy decision support combining Sell, Buy, Craft, Gather, Opportunities and personal Tycoon analytics. It uses Universalis plus normal locally exposed inventory/Market Board observations. It does not automatically buy, sell, reprice, or queue native Market Board searches.
+FFXIV economy decision support combining Sell, Buy, Craft, Gather, Should I Do? and personal Tycoon analytics. It uses Universalis plus normal locally exposed inventory/Market Board observations. It does not automatically buy, sell, reprice, or queue native Market Board searches.
 
 ### AI usage
 **Copilot.** The maintainer designed the product, specified features and economic behavior, directed implementation, reviewed iterations, and personally tests/maintains the plugin. AI tooling implemented and refactored substantial portions of code/documentation under that direction.

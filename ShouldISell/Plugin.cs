@@ -64,7 +64,7 @@ public sealed class Plugin : IDalamudPlugin
         Store = new LocalStore(PluginInterface, Log);
         TraderStore = new TraderStore(PluginInterface, Log);
         GilLedger = new GilLedgerTracker(GameInventory, PlayerState, TraderStore, Log);
-        Catalog = new GameItemCatalog(DataManager);
+        Catalog = new GameItemCatalog(DataManager, Log);
         Inventory = new InventoryScanner(PlayerState, Catalog, Store, Log);
         InventoryCoverage = new InventoryCoverageMonitor(AddonLifecycle, Configuration);
         Universalis = new UniversalisClient(Log);
@@ -99,7 +99,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open Should I?. Modules: sell, buy, craft, gather, opportunities, tycoon. Other: setup, fetch, stop.",
+            HelpMessage = "Open Should I?. Modules: sell, buy, craft, gather, do, tycoon. Other: setup, fetch, stop.",
         });
         CommandManager.AddHandler(LegacySellCommand, new CommandInfo(OnLegacySellCommand)
         {
@@ -127,6 +127,7 @@ public sealed class Plugin : IDalamudPlugin
         ListingHistory.Dispose();
         BuyScanner.Dispose();
         ExternalMarketData.Dispose();
+        Coordinator.Dispose();
         InventoryCoverage.Dispose();
         SaleAnnouncements.Dispose();
         SaleHistory.Dispose();
@@ -187,7 +188,7 @@ public sealed class Plugin : IDalamudPlugin
             case "gather": suiteWindow.OpenModule(ShouldIModule.Gather); break;
             case "opportunities":
             case "opportunity":
-            case "do": suiteWindow.OpenModule(ShouldIModule.Opportunities); break;
+            case "do": suiteWindow.OpenModule(ShouldIModule.Do); break;
             case "tycoon": suiteWindow.OpenModule(ShouldIModule.Tycoon); break;
             case "setup":
             case "welcome":

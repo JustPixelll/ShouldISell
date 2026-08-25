@@ -106,7 +106,7 @@ public sealed class ScoreCalculator
         var stabilityScore = ScoreStability(q1, q3, weightedMedian);
         var trendScore = ScoreTrend(med7, med30);
 
-        // v0.8 semantics: the user's gil input is a reference for one RECOMMENDED LISTING,
+        // The user's gil input is a reference for one RECOMMENDED LISTING,
         // not the entire stockpile and not a per-unit cutoff. This makes the overview answer
         // "how worthwhile is the next listing I would actually create?" A 105-unit position that
         // is best sold one-at-a-time therefore gets value credit for ~one unit per listing rather
@@ -985,5 +985,3 @@ public sealed class ScoreCalculator
         _ => "Very low",
     };
 }
-
-

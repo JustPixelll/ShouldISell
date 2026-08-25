@@ -6,14 +6,16 @@ namespace ShouldISell.Services;
 public sealed class GameItemCatalog
 {
     private readonly IDataManager data;
+    private readonly IPluginLog log;
     private readonly Dictionary<uint, ItemInfo> cache = new();
     private HashSet<uint>? gilShopItems;
     private IReadOnlyList<ItemCategoryInfo>? categories;
     private IReadOnlyList<MarketCatalogEntry>? marketableEntries;
 
-    public GameItemCatalog(IDataManager data)
+    public GameItemCatalog(IDataManager data, IPluginLog log)
     {
         this.data = data;
+        this.log = log;
     }
 
     public ItemInfo Get(uint itemId)
@@ -141,11 +143,12 @@ public sealed class GameItemCatalog
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
             // Vendor-price enrichment is useful but must never prevent the core market plugin
             // from loading after a game-data/schema change. An empty index simply disables the
             // vendor-purchase arbitrage signal until the sheet path is updated.
+            log.Warning(ex, "Could not build the normal-gil vendor item index; vendor-purchase comparisons are disabled.");
         }
 
         gilShopItems = result;

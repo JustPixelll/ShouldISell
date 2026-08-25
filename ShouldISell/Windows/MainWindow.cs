@@ -1046,7 +1046,7 @@ public sealed partial class MainWindow : Window, IDisposable
 
     private static void DrawAboutScore()
     {
-        ImGui.TextWrapped("v0.8 score weights: Price attractiveness 25%, demand 17%, supply 12%, liquidity 11%, price stability 9%, market trend 5%, expected recommended-listing value 11%, and vendor economics 10%. The value component is the only part affected by your gil reference.");
+        ImGui.TextWrapped("Current score weights: Price attractiveness 25%, demand 17%, supply 12%, liquidity 11%, price stability 9%, market trend 5%, expected recommended-listing value 11%, and vendor economics 10%. The value component is the only part affected by your gil reference.");
         ImGui.BulletText("The numeric 0–100 opportunity score now uses the strict weighted market signal rather than the contrast-expanded star calibration. Five stars can therefore be reasonably common among excellent opportunities while 100/100 remains rare.");
         ImGui.BulletText("The gil reference represents expected after-tax payout of one recommended listing. This prevents a 105-unit stockpile that should be sold one-at-a-time from being valued as one giant 105-unit transaction, while still rewarding cheap commodities when the recommended stack itself has meaningful value.");
         ImGui.BulletText("Very fragmented recommendations (more than about a dozen separate listings) receive a mild logarithmic execution-friction penalty. This never overrides market evidence, but it stops a 100+ click sales plan from ranking like a frictionless one-listing sale.");
@@ -1358,13 +1358,3 @@ public sealed partial class MainWindow : Window, IDisposable
         return $"{age.TotalDays:0.#}d";
     }
 }
-
-
-
-
-
-
-
-
-
-

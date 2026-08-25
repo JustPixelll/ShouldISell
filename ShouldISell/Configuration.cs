@@ -9,15 +9,6 @@ public sealed class Configuration : IPluginConfiguration
     public int ValueThresholdGil { get; set; } = 10_000;
     public int ValueSetting { get; set; } = 3;
 
-    // Legacy capital/risk fields remain only so existing configs deserialize without data loss.
-    // They no longer silently filter Should I Buy? discovery; findings filters live in the UI.
-    public int BuyBudgetGil { get; set; } = 500_000;
-    public int BuyMinimumProfitGil { get; set; } = 2_000;
-    public float BuyMinimumRoiPercent { get; set; } = 10f;
-    public float BuyMaximumHoldingDays { get; set; } = 7f;
-    public int BuyMaximumInvestmentPercentPerItem { get; set; } = 25;
-    public int BuyPortfolioMaxPositions { get; set; } = 8;
-
     // Universalis discovery scope. The Market Board and Vendor tabs copy their own UI state into
     // these fields immediately before starting a discovery run.
     public int BuyDeepCandidateLimit { get; set; } = 120;
@@ -60,12 +51,7 @@ public sealed class Configuration : IPluginConfiguration
 
         if (Version < 3) { Version = 3; changed = true; }
         if (Version < 4) { Version = 4; changed = true; }
-        if (Version < 5)
-        {
-            BuyPortfolioMaxPositions = Math.Clamp(BuyPortfolioMaxPositions <= 0 ? 8 : BuyPortfolioMaxPositions, 1, 20);
-            Version = 5;
-            changed = true;
-        }
+        if (Version < 5) { Version = 5; changed = true; }
         if (Version < 6) { Version = 6; changed = true; }
         if (Version < 7) { Version = 7; changed = true; }
         if (Version < 8)

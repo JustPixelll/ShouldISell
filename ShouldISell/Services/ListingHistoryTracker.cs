@@ -61,6 +61,9 @@ public sealed class ListingHistoryTracker : IDisposable
     private readonly IPluginLog log;
     private ListingTraceDocument document;
     private bool dirty;
+    private long revision;
+
+    public long Revision => Interlocked.Read(ref revision);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -139,7 +142,7 @@ public sealed class ListingHistoryTracker : IDisposable
                         lifecycle.InitialQuantity,
                         listing.MarketSlot));
                     document.Lifecycles.Add(lifecycle);
-                    dirty = true;
+                    MarkDirtyUnsafe();
                 }
                 else
                 {
@@ -155,7 +158,7 @@ public sealed class ListingHistoryTracker : IDisposable
                             lifecycle.LastUnitPrice,
                             lifecycle.LastQuantity));
                         lifecycle.LastUnitPrice = listing.UnitPrice;
-                        dirty = true;
+                        MarkDirtyUnsafe();
                     }
 
                     if (lifecycle.LastQuantity != quantity)
@@ -169,7 +172,7 @@ public sealed class ListingHistoryTracker : IDisposable
                             lifecycle.LastUnitPrice,
                             lifecycle.LastQuantity));
                         lifecycle.LastQuantity = quantity;
-                        dirty = true;
+                        MarkDirtyUnsafe();
                     }
 
                     lifecycle.RetainerName = listing.RetainerName;
@@ -194,7 +197,7 @@ public sealed class ListingHistoryTracker : IDisposable
                     lifecycle.LastUnitPrice,
                     lifecycle.LastQuantity,
                     lifecycle.LastMarketSlot));
-                dirty = true;
+                MarkDirtyUnsafe();
             }
 
             if (document.Lifecycles.Count > 20_000)
@@ -204,12 +207,11 @@ public sealed class ListingHistoryTracker : IDisposable
                     .ThenByDescending(x => x.RemovedAtUtc ?? x.LastObservedUtc)
                     .Take(20_000)
                     .ToList();
-                dirty = true;
+                MarkDirtyUnsafe();
             }
         }
 
-        if (dirty)
-            Flush();
+        Flush();
     }
 
     public IReadOnlyList<ListingTraceLifecycle> GetLifecycles(ulong characterContentId)
@@ -275,6 +277,12 @@ public sealed class ListingHistoryTracker : IDisposable
     }
 
     public void Dispose() => Flush();
+
+    private void MarkDirtyUnsafe()
+    {
+        dirty = true;
+        Interlocked.Increment(ref revision);
+    }
 
     private ListingTraceDocument Load()
     {
